@@ -253,7 +253,11 @@ def load_rooms(path: Path) -> list[dict]:
 
 # ── 微信动作阶段 ─────────────────────────────────────────────
 def run_add_friend(wxid: str) -> tuple[bool, str]:
-    proc = _run([sys.executable, "scripts/add_friend.py", "--wxid", wxid],
+    py = _venv_python(PROJECT_DIR)
+    if not py:
+        log.error("找不到 wechat-friend-add 的 venv: %s", PROJECT_DIR)
+        return False, "找不到 wechat-friend-add venv"
+    proc = _run([py, "scripts/add_friend.py", "--wxid", wxid],
                 PROJECT_DIR, timeout=180, label=f"add:{wxid}")
     if proc is not None and proc.returncode == 0:
         return True, ""
@@ -261,7 +265,11 @@ def run_add_friend(wxid: str) -> tuple[bool, str]:
 
 
 def run_send_message(wxid: str, text: str) -> tuple[bool, str]:
-    proc = _run([sys.executable, "scripts/send_message.py", "--wxid", wxid, "--text", text],
+    py = _venv_python(PROJECT_DIR)
+    if not py:
+        log.error("找不到 wechat-friend-add 的 venv: %s", PROJECT_DIR)
+        return False, "找不到 wechat-friend-add venv"
+    proc = _run([py, "scripts/send_message.py", "--wxid", wxid, "--text", text],
                 PROJECT_DIR, timeout=300, label=f"send:{wxid}")
     if proc is not None and proc.returncode == 0:
         return True, ""

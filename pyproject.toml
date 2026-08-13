@@ -1,0 +1,14 @@
+[project]
+name = "recruit-orchestrator"
+version = "1.0.0"
+description = "达人招商全流程编排 (LangGraph)"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.2",
+    "pydantic>=2",
+    "requests>=2.28",   # rag_client 进程内 import (check_rag) 需要
+]
+
+[tool.uv]
+# 以 python -m recruit 运行, 不打包; 只装依赖 (与 wechat-friend-add 约定一致)
+package = false

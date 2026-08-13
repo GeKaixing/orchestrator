@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 from .. import get_logger
 from ..paths import WECHAT_FRIEND_DIR, WECHAT_SCRIPTS_DIR
-from .runner import _run, wechat_scripts_on_path
+from .runner import _run, _venv_python, wechat_scripts_on_path
 
 log = get_logger("wechat")
 
@@ -46,7 +45,11 @@ def check_rag() -> bool:
 
 
 def add_friend(wxid: str) -> tuple[bool, str]:
-    proc = _run([sys.executable, "scripts/add_friend.py", "--wxid", wxid],
+    py = _venv_python(WECHAT_FRIEND_DIR)
+    if not py:
+        log.error("找不到 wechat-friend-add 的 venv: %s", WECHAT_FRIEND_DIR)
+        return False, "找不到 wechat-friend-add venv"
+    proc = _run([py, "scripts/add_friend.py", "--wxid", wxid],
                 WECHAT_FRIEND_DIR, timeout=180, label=f"add:{wxid}")
     if proc is not None and proc.returncode == 0:
         return True, ""
@@ -54,7 +57,11 @@ def add_friend(wxid: str) -> tuple[bool, str]:
 
 
 def send_message(wxid: str, text: str) -> tuple[bool, str]:
-    proc = _run([sys.executable, "scripts/send_message.py", "--wxid", wxid, "--text", text],
+    py = _venv_python(WECHAT_FRIEND_DIR)
+    if not py:
+        log.error("找不到 wechat-friend-add 的 venv: %s", WECHAT_FRIEND_DIR)
+        return False, "找不到 wechat-friend-add venv"
+    proc = _run([py, "scripts/send_message.py", "--wxid", wxid, "--text", text],
                 WECHAT_FRIEND_DIR, timeout=300, label=f"send:{wxid}")
     if proc is not None and proc.returncode == 0:
         return True, ""
