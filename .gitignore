@@ -12,5 +12,8 @@ node_modules/
 out/
 *.tsbuildinfo
 
+# 打包产物 (tools/build_bundle.py)
+dist/
+
 # 根目录空占位 lockfile (desktop/package-lock.json 需要保留)
 /package-lock.json

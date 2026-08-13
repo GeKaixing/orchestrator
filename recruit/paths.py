@@ -7,9 +7,21 @@ from pathlib import Path
 
 HOME = Path(os.path.expanduser("~"))
 
-WORK_DIR = Path(os.path.expanduser("~/Desktop/orchestrator"))
-WXSHOP_DIR = Path(os.path.expanduser("~/Desktop/wxshop-cli"))
-WECHAT_FRIEND_DIR = Path(os.path.expanduser("~/Desktop/wechat-friend-add"))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]  # orchestrator/ 所在目录 (包内/桌面均可)
+
+
+def _sibling(name: str) -> Path:
+    """优先取与 orchestrator 同级的目录 (可随分发包整体搬移), 兜底回退 ~/Desktop."""
+    p = PROJECT_ROOT.parent / name
+    if p.is_dir():
+        return p
+    return HOME / "Desktop" / name
+
+
+WORK_DIR = PROJECT_ROOT
+WXSHOP_DIR = _sibling("wxshop-cli")
+WECHAT_FRIEND_DIR = _sibling("wechat-friend-add")
+RAG_DIR = _sibling("rag")
 WECHAT_SCRIPTS_DIR = WECHAT_FRIEND_DIR / "scripts"
 
 TALENTS_FILE = WORK_DIR / "talents.jsonl"

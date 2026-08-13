@@ -17,7 +17,7 @@ recruit_orchestrator.py — 达人招商全流程编排
   - 微信桌面端已打开并登录
   - 招商文案: --text 或 .env 的 RECRUIT_TEXT
 
-工作区: ~/Desktop/orchestrator/ (talents.jsonl / contacts.jsonl / recruit_state.json / recruit_report.md)
+工作区: orchestrator 目录 (talents.jsonl / contacts.jsonl / recruit_state.json / recruit_report.md), 随项目位置自动解析
 """
 
 from __future__ import annotations
@@ -33,15 +33,17 @@ import time
 from pathlib import Path
 
 # 依赖 wechat-friend-add 的 wechat_core / rag_client, 把其 scripts 目录加进 path
-sys.path.insert(0, os.path.join(os.path.expanduser("~/Desktop"), "wechat-friend-add", "scripts"))
+from recruit import paths as rpaths
+
+sys.path.insert(0, str(rpaths.WECHAT_SCRIPTS_DIR))
 
 from wechat_core import PROJECT_DIR, setup_logger
 
 log = setup_logger("recruit_orchestrator")
 
 # ── 路径 ─────────────────────────────────────────────────────
-WORK_DIR = Path(os.path.expanduser("~/Desktop/orchestrator"))
-WXSHOP_DIR = Path(os.path.expanduser("~/Desktop/wxshop-cli"))
+WORK_DIR = rpaths.WORK_DIR
+WXSHOP_DIR = rpaths.WXSHOP_DIR
 STATE_FILE = WORK_DIR / "recruit_state.json"
 REPORT_FILE = WORK_DIR / "recruit_report.md"
 
