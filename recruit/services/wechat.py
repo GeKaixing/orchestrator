@@ -19,16 +19,47 @@ def _wechat_core():
 
 
 def check_wechat() -> bool:
+    """微信桌面端是否已打开并登录.
+
+    进程在跑 ≠ 已登录: 登录后主窗口标题为「微信」(微信 4.x)。仅进程存在但
+    无「微信」主窗口 → 视为未登录, 提醒用户打开并扫码登录。
+    """
     try:
         core = _wechat_core()
         pid = core.get_wechat_pid()
-        if pid:
-            log.info("微信桌面端运行中 pid=%s", pid)
+        if not pid:
+            log.error("微信桌面端未运行, 请先打开并登录微信")
+            return False
+        try:
+            win = core.find_window(pid, "微信", exact=True)
+        except Exception:  # noqa: BLE001
+            win = None
+        if win:
+            log.info("微信已打开并登录 pid=%s", pid)
             return True
+        log.error("微信进程在运行但未检测到「微信」主窗口, 请确认已扫码登录微信")
+        return False
     except Exception as e:  # noqa: BLE001
         log.error("微信自检异常: %s", e)
-    log.error("微信桌面端未运行, 请先打开并登录微信")
     return False
+
+
+def _parse_add_friend_reason(text: str) -> str:
+    """从 add_friend.py 输出解析失败原因 (需求9: 注销/频繁/隐私等)."""
+    text = text or ""
+    for kw, reason in (
+        ("微信未运行", "微信未运行, 请先打开并登录微信"),
+        ("已经是好友", "已是好友 (幂等成功)"),
+        ("无需重复添加", "已是好友"),
+        ("操作频繁", "添加频繁, 触发风控"),
+        ("频繁", "添加频繁, 触发风控"),
+        ("未检测到", "添加失败: 对方设置隐私/已注销/已是好友"),
+        ("申请添加朋友", "添加失败: 未弹出申请弹窗"),
+        ("打开添加朋友弹窗失败", "打开添加朋友弹窗失败"),
+    ):
+        if kw in text:
+            return reason
+    return "add_friend 失败 (详情见日志)"
 
 
 def check_rag() -> bool:
@@ -53,7 +84,9 @@ def add_friend(wxid: str) -> tuple[bool, str]:
                 WECHAT_FRIEND_DIR, timeout=180, label=f"add:{wxid}")
     if proc is not None and proc.returncode == 0:
         return True, ""
-    return False, f"add_friend 退出码 {proc.returncode if proc else '异常'}"
+    # 失败: 从输出解析具体原因 (需求9: 频繁/隐私/未登录等), 供跟进表标记
+    reason = _parse_add_friend_reason((proc.stdout or "") + (proc.stderr or "")) if proc else "执行异常"
+    return False, reason
 
 
 def send_message(wxid: str, text: str) -> tuple[bool, str]:

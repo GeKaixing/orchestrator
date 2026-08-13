@@ -1,13 +1,14 @@
-"""invite 阶段 (stage=invite): 小店 IM 固定文案邀约 → 有联系方式则微信加好友复邀.
+"""invite 阶段 (stage=invite): 小店 IM 固定文案邀约 → 联系方式 → 微信加好友.
+
+需求映射:
+  5. 在进入 IM 页后给达人发送 5 条邀约带货信息 (用户自定义, 每行一条).
+  7. 进入 IM 页后将获取的达人联系方式 (手机号/微信号) 放入跟进表对应列;
+     没有则空着; 都没有 → 跳过微信加好友, 标记后进入下一个.
+  8. 微信自动化添加: 微信号优先, 只有手机号则用手机号; 都没有 → 跳过.
+  9. 加好友失败 (注销/频繁/隐私等) → 在跟进表标记该用户 → 继续下一个.
+  10. 微信中不主动发聊天内容 (加好友申请成功后等待对方通过再跟进).
 
 IM 发送进度写穿 darens.im_msgs_sent, 中断后续发不重发.
-用户约束 (2026-08-13): 加好友只加好友, 不发送招商文案 —
-  文案不能在好友申请中发出, 等对方通过好友后再跟进 (reply 自动回复 / 手动 send_message)。
-状态流转:
-  IM 全成功 → 有 contact_wxid → wechat add → added (申请已发, 不发文案)
-             → 无 contact_wxid → im_sent + "无联系方式"
-  IM 未发完    → 保持 stage + "IM 已发 n/5" (下轮续发)
-  add 失败     → im_done + reason (下轮续微信, IM 不重发)
 """
 
 from __future__ import annotations
@@ -20,21 +21,22 @@ from ..agents import client
 from ..agents.retry import retry_result
 from ..config import IM_MSG_COUNT, resolve_messages
 from ..paths import CONTACTS_FILE
+from ..services import accounts, db, followup, store
 from ..state import RecruitState
-from ..services import db, store
 
 log = get_logger("invite")
 
 _IM_INTERVAL = 3.0  # 两条 IM 消息之间间隔, 避免刷屏/风控
 
 
-def _send_im_series(room_id: str, messages: list[str], progress: int, attempts: int
-                    ) -> tuple[int, str | None]:
+def _send_im_series(room_id: str, messages: list[str], progress: int, attempts: int,
+                    account: str) -> tuple[int, str | None]:
     """从小店 IM 发 messages[progress:], 返回 (已发送条数, 失败原因或 None)."""
     sent = progress
     for msg in messages[progress:]:
         res = retry_result(
-            lambda: client.call("shop", "im_chat", room_id=room_id, message=msg),
+            lambda: client.call("shop", "im_chat", room_id=room_id, message=msg,
+                                account=account),
             attempts=attempts, label=f"im:{room_id}",
         )
         if not res["success"]:
@@ -45,49 +47,62 @@ def _send_im_series(room_id: str, messages: list[str], progress: int, attempts: 
     return sent, None
 
 
-def _invite_one(room: dict, messages: list[str], retry: int) -> dict:
+def _invite_one(room: dict, messages: list[str], retry: int, account: str) -> dict:
     rid, key = room["roomId"], room["wxid"]
+    nick = room["nickname"]
     cur = db.get_daren(key) or {}
     progress = int(cur.get("im_msgs_sent") or 0)
 
-    sent, im_err = _send_im_series(rid, messages, progress, attempts=retry + 1)
+    # ── 1) IM 5 句邀约 (进度续发) ──
+    sent, im_err = _send_im_series(rid, messages, progress, attempts=retry + 1,
+                                   account=account)
     if sent < len(messages):
         # IM 未发完 → 记进度, 下轮从 im_msgs_sent 续发
         entry = db.upsert_daren(
-            key, nickname=room["nickname"], room_id=rid, im_msgs_sent=sent,
+            key, nickname=nick, room_id=rid, im_msgs_sent=sent,
             reason=f"IM 已发 {sent}/{len(messages)}: {im_err or ''}",
         )
-        log.info("[%s] IM 发送中断 %d/%d: %s", room["nickname"], sent, len(messages), im_err)
+        followup.mark_status(nick, "IM邀约中", f"IM 已发 {sent}/{len(messages)}")
+        log.info("[%s] IM 发送中断 %d/%d: %s", nick, sent, len(messages), im_err)
         return entry
 
     # IM 全成功 → 先记满进度, 后续 save_mark 不再覆盖 im_msgs_sent
-    db.upsert_daren(key, nickname=room["nickname"], room_id=rid, im_msgs_sent=sent)
+    db.upsert_daren(key, nickname=nick, room_id=rid, im_msgs_sent=sent)
 
-    contact_wxid = (room.get("contact_wxid") or "").strip()
-    if not contact_wxid:
+    # ── 2) 联系方式写入跟进表 (微信号/手机号列, 空则留空) ──
+    cwxid = (room.get("contact_wxid") or "").strip()
+    phone = (room.get("phone") or "").strip()
+    followup.upsert_daren(room, {"微信号": cwxid, "手机号": phone})
+
+    # ── 3) 微信加好友: 微信号优先, 否则手机号; 都没有 → 跳过 ──
+    target = cwxid or phone
+    if not target:
         entry = store.save_mark(room, "im_sent", "无联系方式")
-        log.info("[%s] IM %d 条已发, 无联系方式, 跳过微信", room["nickname"], len(messages))
+        followup.mark_status(nick, "已邀约", "无联系方式, 跳过微信加好友")
+        log.info("[%s] IM %d 条已发, 无联系方式, 跳过微信", nick, len(messages))
         return entry
 
     add_res = retry_result(
-        lambda: client.call("wechat", "add_friend", wxid=contact_wxid),
-        attempts=retry + 1, label=f"add:{contact_wxid}",
+        lambda: client.call("wechat", "add_friend", wxid=target),
+        attempts=retry + 1, label=f"add:{target}",
     )
     if not add_res["success"]:
+        reason = add_res["error"] or "加好友失败"
         entry = db.upsert_daren(
-            key, nickname=room["nickname"], room_id=rid, stage="im_done",
-            im_msgs_sent=sent, reason=f"微信加好友失败: {add_res['error'] or ''}",
+            key, nickname=nick, room_id=rid, stage="im_done",
+            im_msgs_sent=sent, reason=f"微信加好友失败: {reason}",
         )
-        log.error("[%s] 微信加好友失败: %s", room["nickname"], add_res["error"])
+        followup.mark_status(nick, "添加失败", reason)
+        log.error("[%s] 微信加好友失败: %s", nick, reason)
         return entry
 
-    # 用户约束 (2026-08-13): 加好友只加好友, 不发送招商文案 —
-    # 文案不能在好友申请中发出, 等对方通过好友后再跟进 (reply/手动 send_message)。
+    # 需求10: 只加好友, 不发送招商文案 — 等对方通过好友后再跟进
     entry = db.upsert_daren(
-        key, nickname=room["nickname"], room_id=rid, stage="added",
+        key, nickname=nick, room_id=rid, stage="added",
         im_msgs_sent=sent, reason="好友申请已发送，待对方通过后跟进",
     )
-    log.info("[%s] IM %d 条 + 微信好友申请已发 (未发文案, 待通过后跟进)", room["nickname"], len(messages))
+    followup.mark_status(nick, "已加好友", "好友申请已发送，待对方通过后跟进")
+    log.info("[%s] IM %d 条 + 微信好友申请已发 (目标 %s, 未发文案)", nick, len(messages), target)
     return entry
 
 
@@ -107,6 +122,7 @@ def _invite_done(wxid: str) -> bool:
 
 def invite(state: RecruitState) -> dict:
     cfg = state["config"]
+    account = accounts.current()
     messages = resolve_messages(cfg.text)[:IM_MSG_COUNT]
     if not messages:
         return {"error": "invite 需要招商文案 (每行一条, 每行 = 1 条 IM 消息)"}
@@ -125,8 +141,9 @@ def invite(state: RecruitState) -> dict:
         log.info("本轮没有待处理的 IM 房间 (全部已邀约)")
         return {"rooms": [], "todo": [], "results": {}}
 
-    log.info("本轮 invite %d 个: %s", len(todo), ", ".join(r["nickname"] for r in todo))
+    log.info("本轮 invite %d 个 (账号 %s): %s", len(todo), account,
+             ", ".join(r["nickname"] for r in todo))
     results: dict = {}
     for r in todo:
-        results[r["wxid"]] = _invite_one(r, messages, cfg.retry)
+        results[r["wxid"]] = _invite_one(r, messages, cfg.retry, account)
     return {"rooms": todo, "todo": todo, "results": results}

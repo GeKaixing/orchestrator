@@ -30,5 +30,14 @@ STATE_FILE = WORK_DIR / "recruit_state.json"
 REPORT_FILE = WORK_DIR / "recruit_report.md"
 DB_FILE = WORK_DIR / "recruit.db"
 
+# 达人跟进表.db 由 wxshop-cli 维护 (48 列, daren-scan --db 写入); orchestrator 直接读写它
+FOLLOWUP_DB = WXSHOP_DIR / "达人跟进表.db"
+FOLLOWUP_TABLE = "达人跟进表"
+
+# wxshop 登录态目录: 项目内 .wxshop/ (default) + .wxshop/accounts/<name>/ (多账号)
+WXSHOP_STATE_DIR = WXSHOP_DIR / ".wxshop"
+# 当前选中的小店账号 (持久化在 settings 表, 这里只是缺省值)
+DEFAULT_WXSHOP_ACCOUNT = "default"
+
 # 已完成阶段: 命中即跳过 (added = 好友申请已发, 待对方通过后跟进, 不再重发)
 STAGES_DONE = {"sent", "im_sent", "added"}

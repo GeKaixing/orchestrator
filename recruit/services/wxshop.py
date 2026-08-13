@@ -9,25 +9,32 @@ from pathlib import Path
 
 from .. import get_logger
 from ..paths import WXSHOP_DIR
+from . import accounts
 from .runner import _run, _venv_python
 
 log = get_logger("wxshop")
 
 
-def check_login() -> bool:
-    py = _venv_python(WXSHOP_DIR)
-    if not py:
-        log.error("找不到 wxshop-cli 的 venv: %s", WXSHOP_DIR)
-        return False
-    proc = _run([py, "-m", "wxshop", "persist", "verify"], WXSHOP_DIR, timeout=120, label="wxshop-persist")
-    if proc is None or proc.returncode != 0:
-        log.error("wxshop 登录态失效, 请先扫码: cd wxshop-cli && .venv/Scripts/python -m wxshop login")
-        return False
-    log.info("wxshop 登录态有效")
-    return True
+def _env(account: str | None = None) -> dict | None:
+    """给 wxshop 子进程注入选账号的环境变量 (None 时用当前账号)."""
+    acc = account or accounts.current()
+    return accounts.login_env(acc)
 
 
-def scan(talents: Path, cat: str | None = None, max_pages: int = 1) -> bool:
+def check_login(account: str | None = None) -> bool:
+    """判定 wxshop 登录是否真有效 (解析 persist verify 的 verdict, 非只看退出码)."""
+    acc = account or accounts.current()
+    h = accounts.check_login(acc)
+    if h["ok"]:
+        log.info("wxshop 登录态有效 (账号 %s, %s)", acc, h.get("nickname") or "")
+        return True
+    log.error("wxshop 登录态失效 (%s), 请扫码: cd wxshop-cli && uv run python -m wxshop login --account %s",
+              h.get("detail"), acc)
+    return False
+
+
+def scan(talents: Path, cat: str | None = None, max_pages: int = 1,
+         account: str | None = None) -> bool:
     """--with-im: 逐条建 IM 房间输出 imUrl(含 roomId). 不加则 daren-contact 会全部 skipped."""
     py = _venv_python(WXSHOP_DIR)
     if not py:
@@ -37,7 +44,7 @@ def scan(talents: Path, cat: str | None = None, max_pages: int = 1) -> bool:
            "--max-pages", str(max_pages), "--out", str(talents)]
     if cat:
         cmd += ["--cat", cat]
-    proc = _run(cmd, WXSHOP_DIR, timeout=1800, label="scan")
+    proc = _run(cmd, WXSHOP_DIR, timeout=1800, label="scan", env_extra=_env(account))
     return proc is not None and proc.returncode == 0 and talents.exists()
 
 
@@ -64,17 +71,17 @@ def backfill_room_ids(talents: Path) -> int:
     return filled
 
 
-def contact(talents: Path, contacts: Path) -> bool:
+def contact(talents: Path, contacts: Path, account: str | None = None) -> bool:
     py = _venv_python(WXSHOP_DIR)
     if not py:
         log.error("找不到 wxshop venv")
         return False
     proc = _run([py, "-m", "wxshop", "daren-contact", "--in", str(talents), "--out", str(contacts)],
-                WXSHOP_DIR, timeout=1800, label="contact")
+                WXSHOP_DIR, timeout=1800, label="contact", env_extra=_env(account))
     return proc is not None and proc.returncode == 0 and contacts.exists()
 
 
-def im_chat(room_id: str, message: str) -> tuple[bool, str]:
+def im_chat(room_id: str, message: str, account: str | None = None) -> tuple[bool, str]:
     """小店官方 IM 招商: im-send 的 API 已失效(404), 走 im-chat UI 路径.
 
     以 stdout 含 '"ok": true' 判定页面操作成功.
@@ -83,19 +90,19 @@ def im_chat(room_id: str, message: str) -> tuple[bool, str]:
     if not py:
         return False, "找不到 wxshop venv"
     proc = _run([py, "-m", "wxshop", "im-chat", "--room-id", room_id, "--message", message],
-                WXSHOP_DIR, timeout=120, label=f"im:{room_id}")
+                WXSHOP_DIR, timeout=120, label=f"im:{room_id}", env_extra=_env(account))
     if proc is not None and proc.returncode == 0 and '"ok": true' in (proc.stdout or ""):
         return True, ""
     return False, f"im-chat 退出码 {proc.returncode if proc else '异常'}"
 
 
-def im_messages(room_id: str) -> list[dict] | None:
+def im_messages(room_id: str, account: str | None = None) -> list[dict] | None:
     """调 wxshop im-messages 读房间消息 (已过滤系统消息). 失败/无消息返回 None."""
     py = _venv_python(WXSHOP_DIR)
     if not py:
         return None
     proc = _run([py, "-m", "wxshop", "im-messages", "--room-id", room_id],
-                WXSHOP_DIR, timeout=90, label=f"immsg:{room_id}")
+                WXSHOP_DIR, timeout=90, label=f"immsg:{room_id}", env_extra=_env(account))
     if proc is None or proc.returncode != 0:
         return None
     lines = (proc.stdout or "").strip().splitlines()
@@ -108,10 +115,6 @@ def im_messages(room_id: str) -> list[dict] | None:
     return data.get("messages") or []
 
 
-def load_my_appid() -> str:
-    """读自己店铺 appid (~/.wxshop/api_config.json), 用于识别对方(达人)消息."""
-    cfg = Path(os.path.expanduser("~/.wxshop/api_config.json"))
-    try:
-        return (json.loads(cfg.read_text(encoding="utf-8")) or {}).get("appid", "")
-    except Exception:  # noqa: BLE001
-        return ""
+def load_my_appid(account: str | None = None) -> str:
+    """读当前/指定小店账号店铺 appid, 用于识别对方(达人)消息."""
+    return accounts.appid(account or accounts.current())

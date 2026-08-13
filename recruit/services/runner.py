@@ -17,10 +17,13 @@ def _run(
     cwd: Path,
     timeout: int = 600,
     label: str = "",
+    env_extra: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess | None:
     """执行外部命令并逐行记日志; 返回 CompletedProcess 或 None(超时/异常)."""
     log.info("RUN [%s] %s (cwd=%s)", label, " ".join(cmd), cwd)
     env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+    if env_extra:
+        env.update(env_extra)
     try:
         proc = subprocess.run(
             cmd, cwd=str(cwd), capture_output=True, text=True,

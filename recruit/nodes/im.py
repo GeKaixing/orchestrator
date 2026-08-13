@@ -9,13 +9,14 @@ from ..agents import client
 from ..agents.retry import retry_result
 from ..paths import CONTACTS_FILE
 from ..state import RecruitState
-from ..services import store
+from ..services import accounts, store
 
 log = get_logger("im")
 
 
 def im_recruit(state: RecruitState) -> dict:
     cfg = state["config"]
+    account = accounts.current()
     path = Path(cfg.contacts) if cfg.contacts else CONTACTS_FILE
     rooms = store.load_rooms(path)
     if not rooms:
@@ -28,12 +29,14 @@ def im_recruit(state: RecruitState) -> dict:
         log.info("本轮没有待发送的 IM 房间 (全部已发)")
         return {"rooms": [], "todo": [], "results": {}}
 
-    log.info("本轮 IM 招商 %d 个: %s", len(todo), ", ".join(r["nickname"] for r in todo))
+    log.info("本轮 IM 招商 %d 个 (账号 %s): %s", len(todo), account,
+             ", ".join(r["nickname"] for r in todo))
     results: dict = {}
     for r in todo:
         room_id = r["roomId"]
         res = retry_result(
-            lambda: client.call("shop", "im_chat", room_id=room_id, message=state["text"]),
+            lambda: client.call("shop", "im_chat", room_id=room_id, message=state["text"],
+                                account=account),
             attempts=cfg.retry + 1, label=f"im:{room_id}",
         )
         ok_b = res["success"]

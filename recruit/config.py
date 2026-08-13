@@ -10,11 +10,14 @@ IM_MSG_COUNT = 5  # invite 阶段在小店 IM 里发送的固定文案条数
 
 
 def resolve_text(args_text: str) -> str:
-    """文案来源: --text 优先, 否则读 wechat-friend-add/.env 的 RECRUIT_TEXT."""
+    """文案来源: --text 优先, 否则读 wechat-friend-add/.env 的 RECRUIT_TEXT.
+
+    .env 里多行文案用字面 \\n 分隔 (每行 = 1 条 IM 消息), 这里还原成换行.
+    """
     if args_text.strip():
         return args_text.strip()
     env = _load_env()
-    return env.get("RECRUIT_TEXT", "").strip()
+    return env.get("RECRUIT_TEXT", "").replace("\\n", "\n").strip()
 
 
 def resolve_messages(text: str) -> list[str]:

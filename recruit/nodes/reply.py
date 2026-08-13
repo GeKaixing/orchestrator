@@ -17,16 +17,16 @@ from ..agents import client
 from ..agents.retry import retry_result
 from ..paths import CONTACTS_FILE
 from ..state import RecruitState
-from ..services import db, store
+from ..services import accounts, db, store
 
 log = get_logger("reply")
 
 
-def _process_room(cfg, r: dict, my_appid: str) -> dict | None:
+def _process_room(cfg, r: dict, my_appid: str, account: str) -> dict | None:
     room_id, nick = r["roomId"], r["nickname"]
     key = r["wxid"]
 
-    msgs_res = client.call("shop", "im_messages", room_id=room_id)
+    msgs_res = client.call("shop", "im_messages", room_id=room_id, account=account)
     if not msgs_res["success"]:
         log.warning("%s: 读消息失败/无消息", nick)
         return None
@@ -55,7 +55,8 @@ def _process_room(cfg, r: dict, my_appid: str) -> dict | None:
         client.call("rag", "set_thread", key=room_id, thread_id=data["thread_id"])
         reply_text = client.call("rag", "collapse_reply", text=data["reply"])["data"]["text"]
         im_res = retry_result(
-            lambda: client.call("shop", "im_chat", room_id=room_id, message=reply_text),
+            lambda: client.call("shop", "im_chat", room_id=room_id, message=reply_text,
+                                account=account),
             attempts=cfg.retry + 1, label=f"reply:{room_id}",
         )
         if im_res["success"]:
@@ -74,14 +75,15 @@ def _process_room(cfg, r: dict, my_appid: str) -> dict | None:
 
 def reply(state: RecruitState) -> dict:
     cfg = state["config"]
+    account = accounts.current()
     path = Path(cfg.contacts) if cfg.contacts else CONTACTS_FILE
     rooms = store.load_rooms(path)
     if not rooms:
         return {"error": f"contacts 里没有可用 roomId: {path}"}
 
-    my_appid_res = client.call("shop", "load_my_appid")
+    my_appid_res = client.call("shop", "load_my_appid", account=account)
     if not my_appid_res["success"] or not (my_appid_res["data"].get("appid") or ""):
-        return {"error": "读不到店铺 appid: ~/.wxshop/api_config.json"}
+        return {"error": "读不到店铺 appid, 无法自动回复"}
     my_appid = my_appid_res["data"]["appid"]
 
     avail_res = client.call("rag", "available")
@@ -91,7 +93,7 @@ def reply(state: RecruitState) -> dict:
     results: dict = {}
     workers = min(8, len(rooms) or 1)
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        entries = list(ex.map(lambda r: _process_room(cfg, r, my_appid), rooms))
+        entries = list(ex.map(lambda r: _process_room(cfg, r, my_appid, account), rooms))
     for r, e in zip(rooms, entries):
         if e:
             results[r["wxid"]] = e
