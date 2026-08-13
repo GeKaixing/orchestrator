@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { Settings } from '../types'
 
-const STAGES = ['all', 'scan', 'add', 'send', 'im']
+const STAGES = ['all', 'scan', 'add', 'send', 'im', 'invite']
 const STAGE_NAME: Record<string, string> = {
   all: '全流程',
   scan: '仅扫描',
   add: '仅加好友',
   send: '仅发送',
-  im: 'IM 招商'
+  im: 'IM 招商',
+  invite: 'IM 5条邀约 → 微信复邀'
 }
 
 interface Props {
@@ -20,9 +21,11 @@ export default function SettingsView({ settings, onSaved }: Props): JSX.Element 
   const [form, setForm] = useState<Settings>(settings)
   const [msg, setMsg] = useState('')
 
+  // 仅挂载时用 settings 初始化; App 每 3s 轮询 settings 不应覆盖正在编辑的表单
   useEffect(() => {
     setForm(settings)
-  }, [settings])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const set = <K extends keyof Settings>(key: K, value: Settings[K]): void =>
     setForm((f) => ({ ...f, [key]: value }))
@@ -83,7 +86,7 @@ export default function SettingsView({ settings, onSaved }: Props): JSX.Element 
       </label>
 
       <label className="field">
-        <span>招商文案 (RECRUIT_TEXT)</span>
+        <span>招商文案 (多行 = 多条消息, invite 用前 5 条)</span>
         <textarea value={form.text} onChange={(e) => set('text', e.target.value)} rows={8} />
       </label>
 

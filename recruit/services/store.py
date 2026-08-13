@@ -55,15 +55,22 @@ def load_contacts(path: Path) -> list[dict]:
 
 
 def load_rooms(path: Path) -> list[dict]:
-    """读 contacts 里有 roomId 的行 (小店官方 IM 房间), 供 im 招商."""
+    """读 contacts 里有 roomId 的行 (小店官方 IM 房间), 供 im 招商.
+
+    wxid 为虚拟 key (im:{rid}) 用作 darens 主键; contact_wxid/phone 为达人真实联系方式,
+    可能为空 (未提取到). invite 阶段据此决定是否进入微信加好友.
+    """
     rooms: list[dict] = []
     for r in _read_jsonl(path):
         rid = (r.get("roomId") or r.get("room_id") or "").strip()
         if rid:
+            cwxid = (r.get("wxId") or r.get("微信号") or r.get("wx_id") or "").strip()
             rooms.append({
                 "roomId": rid,
                 "nickname": (r.get("nickname") or "?").strip(),
                 "wxid": f"im:{rid}",
+                "contact_wxid": cwxid,
+                "phone": (r.get("手机号") or r.get("phone") or "").strip(),
             })
     log.info("rooms: %d 行, 可用 roomId %d 个", len(rooms), len(rooms))
     return rooms

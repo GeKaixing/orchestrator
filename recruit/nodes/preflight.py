@@ -16,10 +16,10 @@ def preflight(state: RecruitState) -> dict:
     wechat_ok = healths.get("wechat", {}).get("ok", False)
     rag_ok = healths.get("rag", {}).get("ok", False)
 
-    if cfg.stage in ("all", "scan", "im", "reply") and not shop_ok:
+    if cfg.stage in ("all", "scan", "im", "invite", "reply") and not shop_ok:
         detail = healths.get("shop", {}).get("detail", "wxshop 不可用")
         return {"error": f"wxshop 登录态失效, 请先扫码: cd wxshop-cli && .venv/Scripts/python -m wxshop login ({detail})"}
-    if cfg.stage in ("all", "add", "send") and not wechat_ok:
+    if cfg.stage in ("all", "add", "send", "invite") and not wechat_ok:
         detail = healths.get("wechat", {}).get("detail", "微信桌面端未运行")
         return {"error": f"微信桌面端未运行, 请先打开并登录微信 ({detail})"}
     if cfg.stage in ("all", "send") and cfg.watch:

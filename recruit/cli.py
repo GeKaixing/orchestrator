@@ -22,8 +22,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=10, help="本轮最多处理 N 个 wxid")
     p.add_argument("--text", default="", help="招商文案 (缺省读 .env 的 RECRUIT_TEXT)")
     p.add_argument("--stage", default="all",
-                   choices=["scan", "add", "send", "im", "reply", "all"],
-                   help="只跑指定阶段 (im=小店官方IM招商, reply=IM自动回复)")
+                   choices=["scan", "add", "send", "im", "reply", "invite", "all"],
+                   help="只跑指定阶段 (im=小店官方IM招商, reply=IM自动回复, invite=IM 5条邀约→微信复邀)")
     p.add_argument("--watch", action="store_true",
                    help="发完后持续自动回复 (请单独跑 send_message.py --watch 更可控)")
     p.add_argument("--retry", type=int, default=1,

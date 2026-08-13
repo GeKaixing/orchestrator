@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 
 from .paths import WECHAT_FRIEND_DIR
 
+IM_MSG_COUNT = 5  # invite 阶段在小店 IM 里发送的固定文案条数
+
 
 def resolve_text(args_text: str) -> str:
     """文案来源: --text 优先, 否则读 wechat-friend-add/.env 的 RECRUIT_TEXT."""
@@ -13,6 +15,11 @@ def resolve_text(args_text: str) -> str:
         return args_text.strip()
     env = _load_env()
     return env.get("RECRUIT_TEXT", "").strip()
+
+
+def resolve_messages(text: str) -> list[str]:
+    """把文案按非空行拆成消息列表: 单行 = 1 条, 多行 = 多条."""
+    return [ln.strip() for ln in text.splitlines() if ln.strip()]
 
 
 def _load_env() -> dict:
@@ -31,7 +38,7 @@ def _load_env() -> dict:
 class RecruitConfig(BaseModel):
     """一次编排运行的参数 (对应原脚本 CLI 参数)."""
 
-    stage: str = Field(default="all", description="all/scan/add/send/im")
+    stage: str = Field(default="all", description="all/scan/add/send/im/invite")
     contacts: str = Field(default="", description="现成 contacts.jsonl, 跳过 wxshop 扫描")
     cat: str = Field(default="", description="daren-scan 达人类目筛选")
     max_pages: int = Field(default=1, description="daren-scan 页数")
@@ -53,4 +60,4 @@ class RecruitConfig(BaseModel):
         return ["add", "send"]
 
     def needs_text(self) -> bool:
-        return self.stage in ("all", "send", "im")
+        return self.stage in ("all", "send", "im", "invite")

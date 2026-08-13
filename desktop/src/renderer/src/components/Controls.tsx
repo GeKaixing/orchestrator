@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { Run, Settings } from '../types'
 
-const STAGES = ['all', 'scan', 'add', 'send', 'im']
+const STAGES = ['all', 'scan', 'add', 'send', 'im', 'invite']
 const STAGE_NAME: Record<string, string> = {
   all: '全流程 (扫描→加好友→发送)',
   scan: '仅扫描提取联系方式',
   add: '仅加好友',
   send: '仅发送招商文案',
-  im: '小店官方 IM 招商'
+  im: '小店官方 IM 招商',
+  invite: 'IM 5条邀约 → 微信复邀'
 }
 
 interface Props {
@@ -21,9 +22,12 @@ export default function Controls({ run, settings, onRunStarted }: Props): JSX.El
   const [form, setForm] = useState<Settings>(settings)
   const [msg, setMsg] = useState('')
 
+  // 仅挂载时用 settings 初始化; App 每 3s 轮询 settings 会传新对象,
+  // 若依赖 settings 会把用户正在编辑的 stage/文案重置回默认值
   useEffect(() => {
     setForm(settings)
-  }, [settings])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const set = <K extends keyof Settings>(key: K, value: Settings[K]): void =>
     setForm((f) => ({ ...f, [key]: value }))
@@ -32,7 +36,7 @@ export default function Controls({ run, settings, onRunStarted }: Props): JSX.El
     setMsg('')
     const stage = form.stage
     const text = form.text.trim()
-    if (['all', 'send', 'im'].includes(stage) && !text) {
+    if (['all', 'send', 'im', 'invite'].includes(stage) && !text) {
       setMsg('该阶段需要招商文案: 请在下方填写或到「设置」保存')
       return
     }
@@ -147,7 +151,7 @@ export default function Controls({ run, settings, onRunStarted }: Props): JSX.El
         </div>
         {msg && <div className="msg">{msg}</div>}
         <p className="hint">
-          all/send/im 需填写招商文案; scan 只扫描提取联系方式。启动后任务在后台子进程运行，可在「日志」查看输出。
+          all/send/im/invite 需填写招商文案; scan 只扫描提取联系方式。文案多行 = 多条消息 (invite 用前 5 条)。启动后任务在后台子进程运行，可在「日志」查看输出。
         </p>
       </div>
     </div>

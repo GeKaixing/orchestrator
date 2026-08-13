@@ -20,7 +20,7 @@ from recruit.services import db
 
 CREATE_NEW_PROCESS_GROUP = 0x00000200 if os.name == "nt" else 0
 
-STAGES = ("all", "scan", "add", "send", "im")
+STAGES = ("all", "scan", "add", "send", "im", "invite")
 
 
 class RunManager:

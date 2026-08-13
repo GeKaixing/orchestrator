@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS darens (
     stage TEXT NOT NULL DEFAULT 'pending',
     reason TEXT NOT NULL DEFAULT '',
     updated TEXT NOT NULL DEFAULT '',
-    replied_msg_ids TEXT NOT NULL DEFAULT '[]'
+    replied_msg_ids TEXT NOT NULL DEFAULT '[]',
+    im_msgs_sent INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,10 +83,20 @@ def init_db() -> None:
     try:
         conn.executescript(SCHEMA)
         conn.commit()
+        _migrate(conn)
         _import_legacy(conn)
     finally:
         conn.close()
     _init_done = True
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """列级迁移 (SCHEMA 只建新库, 已存在的库靠 ALTER 补列)."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(darens)").fetchall()}
+    if "im_msgs_sent" not in cols:
+        conn.execute("ALTER TABLE darens ADD COLUMN im_msgs_sent INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
+        log.info("迁移: darens 增加列 im_msgs_sent")
 
 
 def _import_legacy(conn: sqlite3.Connection) -> None:
@@ -122,6 +133,7 @@ def _row_to_entry(row: sqlite3.Row) -> dict:
         "stage": d["stage"],
         "reason": d["reason"],
         "updated": d["updated"],
+        "im_msgs_sent": d.get("im_msgs_sent") or 0,
     }
     if d.get("room_id"):
         entry["roomId"] = d["room_id"]
@@ -141,9 +153,9 @@ def upsert_daren(wxid: str, **fields: Any) -> dict:
         cur: dict[str, Any] = dict(row) if row else {
             "wxid": wxid, "nickname": fields.get("nickname") or "?",
             "room_id": fields.get("room_id"), "stage": "pending",
-            "reason": "", "updated": "", "replied_msg_ids": "[]",
+            "reason": "", "updated": "", "replied_msg_ids": "[]", "im_msgs_sent": 0,
         }
-        for k in ("nickname", "room_id", "stage", "reason", "updated"):
+        for k in ("nickname", "room_id", "stage", "reason", "updated", "im_msgs_sent"):
             if fields.get(k) is not None:
                 cur[k] = fields[k]
         if fields.get("replied_msg_ids") is not None:
@@ -151,13 +163,13 @@ def upsert_daren(wxid: str, **fields: Any) -> dict:
         if not cur["updated"]:
             cur["updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
         conn.execute(
-            "INSERT INTO darens (wxid, nickname, room_id, stage, reason, updated, replied_msg_ids) "
-            "VALUES (?,?,?,?,?,?,?) "
+            "INSERT INTO darens (wxid, nickname, room_id, stage, reason, updated, replied_msg_ids, im_msgs_sent) "
+            "VALUES (?,?,?,?,?,?,?,?) "
             "ON CONFLICT(wxid) DO UPDATE SET nickname=excluded.nickname, room_id=excluded.room_id, "
             "stage=excluded.stage, reason=excluded.reason, updated=excluded.updated, "
-            "replied_msg_ids=excluded.replied_msg_ids",
+            "replied_msg_ids=excluded.replied_msg_ids, im_msgs_sent=excluded.im_msgs_sent",
             (cur["wxid"], cur["nickname"], cur["room_id"], cur["stage"], cur["reason"],
-             cur["updated"], cur["replied_msg_ids"]),
+             cur["updated"], cur["replied_msg_ids"], cur["im_msgs_sent"]),
         )
         conn.commit()
         return _row_to_entry(conn.execute("SELECT * FROM darens WHERE wxid=?", (wxid,)).fetchone())
