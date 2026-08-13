@@ -47,7 +47,8 @@ def fan_out(state: RecruitState) -> list[Send] | str:
         return "report"
     actions = state["config"].actions_for()
     return [
-        Send("process_contact", {"contact": c, "text": state["text"], "actions": actions})
+        Send("process_contact", {"contact": c, "text": state["text"], "actions": actions,
+                                 "retry": state["config"].retry})
         for c in state["todo"]
     ]
 

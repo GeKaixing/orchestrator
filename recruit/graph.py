@@ -20,6 +20,7 @@ from .nodes.contacts import build_todo, fan_out, join, load_contacts
 from .nodes.im import im_recruit
 from .nodes.preflight import preflight
 from .nodes.recruit import add, done, route_after_add, send
+from .nodes.reply import reply
 from .nodes.report import report
 from .nodes.scan import scan
 
@@ -43,6 +44,8 @@ def route_preflight(state: RecruitState) -> str:
     stage = state["config"].stage
     if stage == "im":
         return "im"
+    if stage == "reply":
+        return "reply"
     if stage in ("all", "scan"):
         return "scan"
     return "load"
@@ -61,12 +64,14 @@ def build_graph() -> StateGraph:
     g.add_node("process_contact", build_contact_graph())
     g.add_node("join", join)
     g.add_node("im_recruit", im_recruit)
+    g.add_node("reply", reply)
     g.add_node("report", report)
 
     g.add_edge(START, "preflight")
     g.add_conditional_edges(
         "preflight", route_preflight,
-        {"end": END, "im": "im_recruit", "scan": "scan", "load": "load_contacts"},
+        {"end": END, "im": "im_recruit", "reply": "reply",
+         "scan": "scan", "load": "load_contacts"},
     )
     g.add_conditional_edges("scan", route_error, {"end": END, "next": "load_contacts"})
     g.add_conditional_edges("load_contacts", route_error, {"end": END, "next": "build_todo"})
@@ -77,5 +82,6 @@ def build_graph() -> StateGraph:
     g.add_edge("process_contact", "join")
     g.add_edge("join", "report")
     g.add_conditional_edges("im_recruit", route_error, {"end": END, "next": "report"})
+    g.add_conditional_edges("reply", route_error, {"end": END, "next": "report"})
     g.add_edge("report", END)
     return g.compile()

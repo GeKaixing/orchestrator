@@ -5,9 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from .. import get_logger
+from ..agents import client
+from ..agents.retry import retry_result
 from ..paths import CONTACTS_FILE
 from ..state import RecruitState
-from ..services import store, wxshop
+from ..services import store
 
 log = get_logger("im")
 
@@ -29,9 +31,15 @@ def im_recruit(state: RecruitState) -> dict:
     log.info("本轮 IM 招商 %d 个: %s", len(todo), ", ".join(r["nickname"] for r in todo))
     results: dict = {}
     for r in todo:
-        ok, reason = wxshop.im_chat(r["roomId"], state["text"])
-        entry = store.save_mark(r, "im_sent" if ok else "failed", "" if ok else reason)
+        room_id = r["roomId"]
+        res = retry_result(
+            lambda: client.call("shop", "im_chat", room_id=room_id, message=state["text"]),
+            attempts=cfg.retry + 1, label=f"im:{room_id}",
+        )
+        ok_b = res["success"]
+        reason = "" if ok_b else (res["error"] or "im_chat 失败")
+        entry = store.save_mark(r, "im_sent" if ok_b else "failed", reason)
         results[r["wxid"]] = entry
-        log.info("[%s] %s: %s", r["nickname"],
-                 "IM 招商消息已发送" if ok else f"发送失败: {reason}")
+        log.info("[%s] %s", r["nickname"],
+                 "IM 招商消息已发送" if ok_b else f"发送失败: {reason}")
     return {"rooms": todo, "todo": todo, "results": results}

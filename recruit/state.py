@@ -30,5 +30,6 @@ class ContactState(TypedDict):
     contact: dict
     text: str
     actions: list[str]                         # ["add"] / ["send"] / ["add","send"]
+    retry: int                                 # 动作失败额外重试次数
     result: dict | None
     results: Annotated[dict, merge_results]

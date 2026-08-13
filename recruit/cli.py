@@ -9,6 +9,7 @@ import sys
 from . import get_logger, paths
 from .config import RecruitConfig, resolve_text
 from .graph import build_graph
+from .services import db
 
 log = get_logger("cli")
 
@@ -21,10 +22,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=10, help="本轮最多处理 N 个 wxid")
     p.add_argument("--text", default="", help="招商文案 (缺省读 .env 的 RECRUIT_TEXT)")
     p.add_argument("--stage", default="all",
-                   choices=["scan", "add", "send", "im", "all"],
-                   help="只跑指定阶段 (im=小店官方IM招商)")
+                   choices=["scan", "add", "send", "im", "reply", "all"],
+                   help="只跑指定阶段 (im=小店官方IM招商, reply=IM自动回复)")
     p.add_argument("--watch", action="store_true",
                    help="发完后持续自动回复 (请单独跑 send_message.py --watch 更可控)")
+    p.add_argument("--retry", type=int, default=1,
+                   help="每个动作失败后额外重试次数 (缺省 1)")
     return p
 
 
@@ -50,12 +53,14 @@ def main(argv: list[str] | None = None) -> int:
         limit=args.limit,
         text=text,
         watch=args.watch,
+        retry=args.retry,
     )
     if cfg.needs_text() and not text:
         log.error("需要招商文案: 传 --text 或在 .env 设置 RECRUIT_TEXT")
         return 1
 
     paths.WORK_DIR.mkdir(parents=True, exist_ok=True)
+    db.init_db()
 
     graph = build_graph()
     result = graph.invoke(

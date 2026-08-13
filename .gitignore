@@ -1,3 +1,16 @@
 __pycache__/
 *.pyc
 .venv/
+
+# 运行时产物
+recruit.db
+logs/
+*.log
+
+# 前端构建
+node_modules/
+out/
+*.tsbuildinfo
+
+# 根目录空占位 lockfile (desktop/package-lock.json 需要保留)
+/package-lock.json

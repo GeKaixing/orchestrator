@@ -38,6 +38,7 @@ class RecruitConfig(BaseModel):
     limit: int = Field(default=10, description="本轮最多处理 N 个 wxid")
     text: str = Field(default="", description="招商文案 (缺省读 .env 的 RECRUIT_TEXT)")
     watch: bool = Field(default=False, description="是否要求持续自动回复 (仅提示)")
+    retry: int = Field(default=1, description="每个动作失败后额外重试次数")
 
     @property
     def contacts_path(self) -> str:

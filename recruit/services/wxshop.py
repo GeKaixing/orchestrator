@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -86,3 +87,31 @@ def im_chat(room_id: str, message: str) -> tuple[bool, str]:
     if proc is not None and proc.returncode == 0 and '"ok": true' in (proc.stdout or ""):
         return True, ""
     return False, f"im-chat 退出码 {proc.returncode if proc else '异常'}"
+
+
+def im_messages(room_id: str) -> list[dict] | None:
+    """调 wxshop im-messages 读房间消息 (已过滤系统消息). 失败/无消息返回 None."""
+    py = _venv_python(WXSHOP_DIR)
+    if not py:
+        return None
+    proc = _run([py, "-m", "wxshop", "im-messages", "--room-id", room_id],
+                WXSHOP_DIR, timeout=90, label=f"immsg:{room_id}")
+    if proc is None or proc.returncode != 0:
+        return None
+    lines = (proc.stdout or "").strip().splitlines()
+    if not lines:
+        return None
+    try:
+        data = json.loads(lines[-1])
+    except Exception:  # noqa: BLE001
+        return None
+    return data.get("messages") or []
+
+
+def load_my_appid() -> str:
+    """读自己店铺 appid (~/.wxshop/api_config.json), 用于识别对方(达人)消息."""
+    cfg = Path(os.path.expanduser("~/.wxshop/api_config.json"))
+    try:
+        return (json.loads(cfg.read_text(encoding="utf-8")) or {}).get("appid", "")
+    except Exception:  # noqa: BLE001
+        return ""

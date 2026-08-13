@@ -1,4 +1,8 @@
-"""状态/数据文件读写 — 路径每次调用时经 paths 模块解析, 便于测试隔离."""
+"""状态/数据文件读写.
+
+- 达人阶段状态 (darens): 走 SQLite (recruit/services/db.py), 写穿.
+- contacts/talents 输入数据: 仍为 JSONL 文件.
+"""
 
 from __future__ import annotations
 
@@ -9,54 +13,34 @@ from pathlib import Path
 
 from .. import get_logger
 from .. import paths
+from . import db
 
 log = get_logger("store")
 
 
-# ── 状态持久化 ──────────────────────────────────────────────
+# ── 状态持久化 (SQLite) ────────────────────────────────────
 def load_state() -> dict:
-    f = paths.STATE_FILE
-    if f.exists():
-        try:
-            return json.loads(f.read_text(encoding="utf-8"))
-        except Exception as e:  # noqa: BLE001
-            log.warning("读取 %s 失败: %s", f, e)
-    return {}
-
-
-def save_state(state: dict) -> None:
-    f = paths.STATE_FILE
-    f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def mark(contact: dict, stage: str, reason: str = "", updated: str | None = None) -> dict:
-    """构造单个联系人的状态条目."""
-    return {
-        "wxid": contact["wxid"],
-        "nickname": contact.get("nickname") or "?",
-        **({"roomId": contact["roomId"]} if contact.get("roomId") else {}),
-        "stage": stage,
-        "reason": reason,
-        "updated": updated or time.strftime("%Y-%m-%d %H:%M:%S"),
-    }
+    """返回 {wxid: entry}, 供节点读取阶段/备注."""
+    return db.get_state()
 
 
 def save_mark(contact: dict, stage: str, reason: str = "") -> dict:
-    """写入状态文件并返回新条目 (写穿)."""
-    entry = mark(contact, stage, reason)
-    st = load_state()
-    st[contact["wxid"]] = entry
-    save_state(st)
-    return entry
+    """写穿 darens 并返回新条目 (兼容旧签名)."""
+    return db.upsert_daren(
+        contact["wxid"],
+        nickname=contact.get("nickname") or "?",
+        room_id=contact.get("roomId"),
+        stage=stage,
+        reason=reason,
+    )
 
 
 def is_done(wxid: str) -> bool:
-    st = load_state().get(wxid, {})
-    return st.get("stage") in paths.STAGES_DONE
+    entry = db.get_daren(wxid) or {}
+    return entry.get("stage") in paths.STAGES_DONE
 
 
-# ── 联系人/房间解析 ─────────────────────────────────────────
+# ── 联系人/房间解析 (输入数据文件) ─────────────────────────
 def load_contacts(path: Path) -> list[dict]:
     """读 contacts.jsonl, 提取有效 wxId (兼容 微信号/wxId/wx_id 字段, 剔除 (empty))."""
     rows = _read_jsonl(path)
