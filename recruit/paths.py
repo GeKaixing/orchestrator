@@ -18,5 +18,5 @@ STATE_FILE = WORK_DIR / "recruit_state.json"
 REPORT_FILE = WORK_DIR / "recruit_report.md"
 DB_FILE = WORK_DIR / "recruit.db"
 
-# 已完成阶段: 命中即跳过
-STAGES_DONE = {"sent", "im_sent"}
+# 已完成阶段: 命中即跳过 (added = 好友申请已发, 待对方通过后跟进, 不再重发)
+STAGES_DONE = {"sent", "im_sent", "added"}

@@ -55,6 +55,6 @@ def fan_out(state: RecruitState) -> list[Send] | str:
 
 def join(state: RecruitState) -> dict:
     done = sum(1 for it in state.get("todo", [])
-               if state.get("results", {}).get(it["wxid"], {}).get("stage") in ("sent", "im_sent"))
+               if state.get("results", {}).get(it["wxid"], {}).get("stage") in ("sent", "im_sent", "added"))
     log.info("全部联系人分支完成, 成功 %d/%d", done, len(state.get("todo", [])))
     return {}
