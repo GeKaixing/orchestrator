@@ -36,6 +36,16 @@ MAX_CONSECUTIVE_FAIL = 3
 LOG_DIR = WORK_DIR / "logs" / "agents"
 
 
+def _auto_start_names() -> list[str]:
+    """后端启动时自动拉起的 agent 名单.
+
+    默认排除 rag: rag 服务 (localhost:2024) 尚未部署, 拉起只会 degraded.
+    部署后可设环境变量 RECRUIT_SKIP_AGENTS= (空) 或 RECRUIT_SKIP_AGENTS= 来启用.
+    """
+    skip = {s.strip() for s in os.environ.get("RECRUIT_SKIP_AGENTS", "rag").split(",") if s.strip()}
+    return [n for n in AGENT_NAMES if n not in skip]
+
+
 def _kill_tree(pid: int) -> None:
     if os.name == "nt":
         try:
@@ -128,7 +138,7 @@ class AgentManager:
     def start_all(self) -> None:
         db.init_db()
         self._reconcile()
-        for name in AGENT_NAMES:
+        for name in _auto_start_names():
             self.start(name)
         self._start_poller()
 

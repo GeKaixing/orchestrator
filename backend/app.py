@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from recruit.paths import REPORT_FILE
 from recruit.services import db
+from recruit.services import followup as followup_mod
 
 from . import agent_manager
 from . import files as files_mod
@@ -174,6 +175,34 @@ def report() -> dict:
     if REPORT_FILE.exists():
         return {"text": REPORT_FILE.read_text(encoding="utf-8", errors="replace")}
     return {"text": f"(报告文件不存在: {REPORT_FILE})"}
+
+
+# 跟进表可视化的关键列 (48 列里挑展示用)
+_FOLLOWUP_COLS = (
+    "达人昵称", "微信号", "手机号", "跟进状态", "备注原因", "达人评分",
+    "带货销售额", "粉丝数", "采集时间", "登记时间", "来源页面", "达人等级",
+)
+
+
+@app.get("/api/followup")
+def followup(q: str | None = None, status: str | None = None,
+             limit: int = Query(default=500, le=5000)) -> dict:
+    """达人跟进表 (wxshop-cli/达人跟进表.db). 支持昵称/微信号/手机号搜索 + 状态过滤."""
+    rows = followup_mod.list_darens()
+    out: list[dict] = []
+    for r in rows:
+        if q:
+            hay = f"{r.get('达人昵称') or ''} {r.get('微信号') or ''} {r.get('手机号') or ''}"
+            if q.strip() not in hay:
+                continue
+        if status and (r.get("跟进状态") or "") != status:
+            continue
+        out.append({k: r.get(k) for k in _FOLLOWUP_COLS})
+    stats: dict[str, int] = {}
+    for r in rows:
+        s = r.get("跟进状态") or "(未标记)"
+        stats[s] = stats.get(s, 0) + 1
+    return {"total": len(rows), "shown": len(out), "rows": out[:limit], "stats": stats}
 
 
 @app.get("/api/files")

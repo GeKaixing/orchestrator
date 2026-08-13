@@ -5,12 +5,14 @@ import type { Run, Settings } from './types'
 import Controls from './components/Controls'
 import Dashboard from './components/Dashboard'
 import Data from './components/Data'
+import Followup from './components/Followup'
 import LogPane from './components/LogPane'
 import Report from './components/Report'
 import SettingsView from './components/Settings'
 
 const NAV = [
   { key: 'dashboard', label: '监控面板' },
+  { key: 'followup', label: '跟进表' },
   { key: 'controls', label: '任务控制' },
   { key: 'report', label: '报告' },
   { key: 'data', label: '数据' },
@@ -64,6 +66,7 @@ export default function App(): JSX.Element {
       </aside>
       <main className="content">
         {nav === 'dashboard' && <Dashboard />}
+        {nav === 'followup' && <Followup />}
         {nav === 'controls' && settings && (
           <Controls run={run} settings={settings} onRunStarted={(r) => setRun(r)} />
         )}

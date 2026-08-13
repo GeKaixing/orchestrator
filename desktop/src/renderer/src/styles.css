@@ -171,6 +171,19 @@ body {
   margin-left: 6px;
 }
 
+.toolbar input.search {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
+  color: var(--text);
+  min-width: 240px;
+}
+
+.toolbar input.search::placeholder {
+  color: var(--muted);
+}
+
 /* 表格 */
 .table-wrap {
   flex: 1;

@@ -73,3 +73,25 @@ export interface FilePayload {
   count: number
   text: string
 }
+
+export interface FollowupRow {
+  达人昵称?: string
+  微信号?: string
+  手机号?: string
+  跟进状态?: string
+  备注原因?: string
+  达人评分?: number | null
+  带货销售额?: string
+  粉丝数?: string
+  采集时间?: string
+  登记时间?: string
+  来源页面?: string
+  达人等级?: string
+}
+
+export interface FollowupData {
+  total: number
+  shown: number
+  rows: FollowupRow[]
+  stats: Record<string, number>
+}
