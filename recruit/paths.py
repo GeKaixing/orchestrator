@@ -11,11 +11,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]  # orchestrator/ 所在目录
 
 
 def _sibling(name: str) -> Path:
-    """优先取与 orchestrator 同级的目录 (可随分发包整体搬移), 兜底回退 ~/Desktop."""
-    p = PROJECT_ROOT.parent / name
-    if p.is_dir():
-        return p
-    return HOME / "Desktop" / name
+    """依赖项目解析: 现在集中放在 orchestrator/agents/ 下 (用户已移动).
+
+    依次回退: agents/ → 与 orchestrator 同级 (旧布局) → ~/Desktop. 返回存在的第一个.
+    """
+    for cand in (
+        PROJECT_ROOT / "agents" / name,
+        PROJECT_ROOT.parent / name,
+        HOME / "Desktop" / name,
+    ):
+        if cand.is_dir():
+            return cand
+    return PROJECT_ROOT / "agents" / name  # 默认新布局
 
 
 WORK_DIR = PROJECT_ROOT
