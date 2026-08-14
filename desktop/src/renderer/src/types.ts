@@ -49,7 +49,16 @@ export interface Settings {
   text: string
 }
 
-export type AgentStatusName = 'wechat' | 'shop' | 'rag'
+export interface UpdateCheck {
+  current_version: string
+  latest_version: string
+  has_update: boolean
+  release_url: string
+  notes?: string
+  error?: string
+}
+
+export type AgentStatusName = 'wechat' | 'shop' | 'rag' | 'hermes'
 export type AgentState = 'stopped' | 'starting' | 'running' | 'degraded' | 'error'
 
 export interface AgentStatus {
@@ -68,9 +77,22 @@ export interface Preflight {
   rag: boolean
 }
 
+export interface AgentStoreItem {
+  key: string
+  name: string
+  description: string
+  repo: string
+  dir: string
+  installed: boolean
+  git: boolean
+  branch?: string
+  head?: string
+}
+
 export interface FilePayload {
   name: string
   count: number
+  rows?: Record<string, unknown>[]
   text: string
 }
 

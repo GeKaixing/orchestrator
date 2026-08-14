@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
+import { ChevronDown, ChevronUp, Eraser } from 'lucide-react'
 import { api } from '../api'
 import { usePolling } from '../usePolling'
 import type { LogEntry, Run } from '../types'
+import { Button } from '@/components/ui/button'
 
 const MAX_LOGS = 2000
 
 interface Props {
   run: Run | null
+  collapsed: boolean
+  onToggle: () => void
 }
 
-export default function LogPane({ run }: Props): JSX.Element {
+export default function LogPane({ run, collapsed, onToggle }: Props): JSX.Element {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [cursor, setCursor] = useState(0)
   const boxRef = useRef<HTMLPreElement>(null)
@@ -53,19 +57,28 @@ export default function LogPane({ run }: Props): JSX.Element {
   }, [logs])
 
   return (
-    <div className="logpane">
-      <div className="logpane-head">
-        <span className="logpane-title">日志 {run ? `· 运行 #${run.id} (${run.stage})` : ''}</span>
-        <span className="spacer" />
-        <button className="btn ghost sm" onClick={() => setLogs([])}>
+    <div className="flex h-full flex-col bg-card">
+      <div className="flex items-center gap-2 border-b px-3 py-1.5">
+        <Button variant="ghost" size="sm" onClick={onToggle} className="-ml-1 px-1.5" title={collapsed ? '展开日志' : '收起日志'}>
+          {collapsed ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+        </Button>
+        <span className="text-xs font-semibold">日志 {run ? `· 运行 #${run.id} (${run.stage})` : ''}</span>
+        <div className="flex-1" />
+        <Button variant="ghost" size="sm" onClick={() => setLogs([])}>
+          <Eraser className="size-3.5" />
           清空
-        </button>
+        </Button>
       </div>
-      <pre ref={boxRef} className="logbox">
-        {logs.length === 0
-          ? '(等待日志…启动任务后在此实时显示编排输出)'
-          : logs.map((l) => `${l.ts} ${l.message}`).join('\n')}
-      </pre>
+      {!collapsed && (
+        <pre
+          ref={boxRef}
+          className="mono min-h-0 flex-1 overflow-auto px-3 py-2 text-[11px] leading-relaxed whitespace-pre-wrap break-all text-muted-foreground"
+        >
+          {logs.length === 0
+            ? '(等待日志…启动任务后在此实时显示编排输出)'
+            : logs.map((l) => `${l.ts} ${l.message}`).join('\n')}
+        </pre>
+      )}
     </div>
   )
 }

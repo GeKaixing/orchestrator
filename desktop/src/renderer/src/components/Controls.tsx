@@ -1,6 +1,20 @@
 import { useEffect, useState } from 'react'
+import { MessageSquareReply, Play, Square } from 'lucide-react'
 import { api } from '../api'
 import type { Run, Settings } from '../types'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
+import { cn } from '@/lib/utils'
 
 const STAGES = ['all', 'scan', 'add', 'send', 'im', 'invite']
 const STAGE_NAME: Record<string, string> = {
@@ -84,76 +98,100 @@ export default function Controls({ run, settings, onRunStarted }: Props): JSX.El
   const running = !!run && ['pending', 'running', 'stopping'].includes(run.status)
 
   return (
-    <div className="view controls">
-      <div className="controls-form">
-        <h2 className="section-title">任务参数</h2>
+    <div className="grid h-full grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <Card className="gap-4 py-5">
+        <CardContent className="flex flex-col gap-4 px-5">
+          <h2 className="text-[15px] font-semibold">任务参数</h2>
 
-        <label className="field">
-          <span>阶段</span>
-          <select value={form.stage} onChange={(e) => set('stage', e.target.value)}>
-            {STAGES.map((s) => (
-              <option key={s} value={s}>
-                {s} — {STAGE_NAME[s]}
-              </option>
-            ))}
-          </select>
-        </label>
+          <div className="flex flex-col gap-2">
+            <Label>阶段</Label>
+            <Select value={form.stage} onValueChange={(v) => set('stage', v)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STAGES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s} — {STAGE_NAME[s]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <div className="field-row">
-          <label className="field">
-            <span>本轮处理数 limit</span>
-            <input
-              type="number"
-              value={form.limit}
-              onChange={(e) => set('limit', Number(e.target.value))}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-2">
+              <Label>本轮处理数 limit</Label>
+              <Input
+                type="number"
+                value={form.limit}
+                onChange={(e) => set('limit', Number(e.target.value))}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label>扫描页数 max-pages</Label>
+              <Input
+                type="number"
+                value={form.max_pages}
+                onChange={(e) => set('max_pages', Number(e.target.value))}
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label>达人类目 cat（可空）</Label>
+            <Input value={form.cat} onChange={(e) => set('cat', e.target.value)} />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label>现成 contacts 文件（可空）</Label>
+            <Input value={form.contacts} onChange={(e) => set('contacts', e.target.value)} />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label>招商文案</Label>
+            <Textarea
+              value={form.text}
+              onChange={(e) => set('text', e.target.value)}
+              rows={8}
+              className="resize-y"
             />
-          </label>
-          <label className="field">
-            <span>扫描页数 max-pages</span>
-            <input
-              type="number"
-              value={form.max_pages}
-              onChange={(e) => set('max_pages', Number(e.target.value))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="gap-4 py-5">
+        <CardContent className="flex flex-col gap-3 px-5">
+          <h2 className="text-[15px] font-semibold">操作</h2>
+          <Button disabled={running} onClick={() => void start()}>
+            <Play className="size-4" />
+            启动任务
+          </Button>
+          <Button variant="destructive" disabled={!running} onClick={() => void stop()}>
+            <Square className="size-4" />
+            停止任务
+          </Button>
+          <Button disabled={running} onClick={() => void reply()}>
+            <MessageSquareReply className="size-4" />
+            自动回复一轮 (IM)
+          </Button>
+
+          <div className="mt-1 flex items-center gap-2 text-[13px]">
+            <span
+              className={cn(
+                'size-2 rounded-full',
+                run?.status === 'running' ? 'bg-green-500' : 'bg-muted-foreground/60'
+              )}
             />
-          </label>
-        </div>
-
-        <label className="field">
-          <span>达人类目 cat（可空）</span>
-          <input value={form.cat} onChange={(e) => set('cat', e.target.value)} />
-        </label>
-
-        <label className="field">
-          <span>现成 contacts 文件（可空）</span>
-          <input value={form.contacts} onChange={(e) => set('contacts', e.target.value)} />
-        </label>
-
-        <label className="field">
-          <span>招商文案</span>
-          <textarea value={form.text} onChange={(e) => set('text', e.target.value)} rows={8} />
-        </label>
-      </div>
-
-      <div className="controls-actions">
-        <button className="btn primary" disabled={running} onClick={() => void start()}>
-          启动任务
-        </button>
-        <button className="btn danger" disabled={!running} onClick={() => void stop()}>
-          停止任务
-        </button>
-        <button className="btn teal" disabled={running} onClick={() => void reply()}>
-          自动回复一轮 (IM)
-        </button>
-
-        <div className="run-status">
-          <span className={`dot ${run && run.status === 'running' ? 'green' : ''}`}>●</span>
-          <span>{runStatusText(run)}</span>
-        </div>
-        {msg && <div className="msg">{msg}</div>}
-        <p className="hint">
-          all/send/im/invite 需填写招商文案; scan 只扫描提取联系方式。文案多行 = 多条消息 (invite 用前 5 条)。启动后任务在后台子进程运行，可在「日志」查看输出。
-        </p>
-      </div>
+            <span>{runStatusText(run)}</span>
+          </div>
+          {msg && <div className="text-xs text-primary">{msg}</div>}
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            all/send/im/invite 需填写招商文案; scan 只扫描提取联系方式。文案多行 = 多条消息
+            (invite 用前 5 条)。启动后任务在后台子进程运行，可在「日志」查看输出。
+          </p>
+        </CardContent>
+      </Card>
     </div>
   )
 }

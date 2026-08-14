@@ -1,13 +1,18 @@
 import { useCallback, useState } from 'react'
+import { Loader2, Play, RotateCw, Square } from 'lucide-react'
 import { api } from '../api'
 import { usePolling } from '../usePolling'
 import type { AgentStatus, AgentStatusName } from '../types'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
 
-const AGENTS: AgentStatusName[] = ['wechat', 'shop', 'rag']
+const AGENTS: AgentStatusName[] = ['wechat', 'shop', 'rag', 'hermes']
 const AGENT_LABEL: Record<AgentStatusName, string> = {
   wechat: '微信 Agent',
-  shop: '小店 Agent',
-  rag: 'RAG Agent'
+  shop: '微信小店 Agent',
+  rag: 'RAG Agent',
+  hermes: 'Hermes Agent'
 }
 const STATE_LABEL: Record<string, string> = {
   running: '运行中',
@@ -17,21 +22,21 @@ const STATE_LABEL: Record<string, string> = {
   starting: '启动中'
 }
 const STATE_COLOR: Record<string, string> = {
-  running: '#3ddc84',
-  degraded: '#ffb84d',
-  error: '#ff6b6b',
-  stopped: '#9aa0a6',
-  starting: '#ffb84d'
+  running: '#16a34a',
+  degraded: '#d97706',
+  error: '#dc2626',
+  stopped: '#8a94a6',
+  starting: '#d97706'
 }
 const DOT_CLASS: Record<string, string> = {
-  running: 'green',
-  degraded: 'yellow',
-  error: 'red',
-  stopped: '',
-  starting: 'yellow'
+  running: 'bg-green-500',
+  degraded: 'bg-yellow-500',
+  error: 'bg-red-500',
+  stopped: 'bg-muted-foreground/60',
+  starting: 'bg-yellow-500'
 }
 
-export default function AgentsPanel(): JSX.Element {
+export default function AgentsPanel({ stacked = false }: { stacked?: boolean }): JSX.Element {
   const [agents, setAgents] = useState<AgentStatus[]>([])
   const [busy, setBusy] = useState<string | null>(null)
 
@@ -58,60 +63,69 @@ export default function AgentsPanel(): JSX.Element {
   }
 
   return (
-    <div className="agents-panel">
-      <div className="agents-cards">
-        {AGENTS.map((name) => {
-          const a = agents.find((x) => x.name === name)
-          const state = a?.status ?? 'stopped'
-          return (
-            <div key={name} className="agent-card">
-              <div className="agent-card-head">
-                <span className={`dot ${DOT_CLASS[state] ?? ''}`}>●</span>
-                <span className="agent-name">{AGENT_LABEL[name]}</span>
+    <div className={cn('grid grid-cols-1 gap-3', !stacked && 'sm:grid-cols-3')}>
+      {AGENTS.map((name) => {
+        const a = agents.find((x) => x.name === name)
+        const state = a?.status ?? 'stopped'
+        return (
+          <Card key={name} className="gap-2 py-4">
+            <CardContent className="flex flex-col gap-1.5 px-4">
+              <div className="flex items-center gap-2">
+                <span className={cn('size-2.5 rounded-full', DOT_CLASS[state] ?? 'bg-muted-foreground/60')} />
+                <span className="text-sm font-semibold">{AGENT_LABEL[name]}</span>
               </div>
-              <div className="agent-state" style={{ color: STATE_COLOR[state] }}>
+              <div className="text-lg font-bold" style={{ color: STATE_COLOR[state] }}>
                 {STATE_LABEL[state]}
               </div>
-              <div className="agent-meta">
+              <div className="mono text-[11px] text-muted-foreground">
                 {state === 'running' && a?.pid ? `pid ${a.pid}` : ''}
                 {state === 'running' && a?.port ? ` · :${a.port}` : ''}
               </div>
-              <div className="agent-detail muted" title={a?.detail}>
+              <div className="truncate text-[11px] text-muted-foreground" title={a?.detail}>
                 {a?.detail || '(未启动)'}
               </div>
-              <div className="agent-last muted">检查 {a?.last_health || '—'}</div>
-              <div className="agent-actions">
+              <div className="text-[11px] text-muted-foreground">检查 {a?.last_health || '—'}</div>
+              <div className="mt-1 flex gap-1.5">
                 {state === 'running' ? (
                   <>
-                    <button
-                      className="btn sm ghost"
+                    <Button
+                      size="sm"
+                      variant="outline"
                       disabled={busy !== null}
                       onClick={() => void act(name, 'restart')}
                     >
-                      重启
-                    </button>
-                    <button
-                      className="btn sm ghost"
+                      {busy === `${name}:restart` ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <RotateCw className="size-3.5" />
+                      )}
+                      {busy === `${name}:restart` ? '重启中' : '重启'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
                       disabled={busy !== null}
                       onClick={() => void act(name, 'stop')}
                     >
+                      <Square className="size-3.5" />
                       停止
-                    </button>
+                    </Button>
                   </>
                 ) : (
-                  <button
-                    className="btn sm primary"
+                  <Button
+                    size="sm"
                     disabled={busy !== null}
                     onClick={() => void act(name, 'start')}
                   >
+                    <Play className="size-3.5" />
                     启动
-                  </button>
+                  </Button>
                 )}
               </div>
-            </div>
-          )
-        })}
-      </div>
+            </CardContent>
+          </Card>
+        )
+      })}
     </div>
   )
 }

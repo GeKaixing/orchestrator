@@ -29,6 +29,13 @@ WORK_DIR = PROJECT_ROOT
 WXSHOP_DIR = _sibling("wxshop-cli")
 WECHAT_FRIEND_DIR = _sibling("wechat-friend-add")
 RAG_DIR = _sibling("rag")
+WIKI_DIR = _sibling("wiki")
+# 知识源优先用本地 Obsidian 知识库 (llm-wiki, 原 openwiki OKF wiki 的替代);
+# 不存在时回退 agents/wiki (openwiki 生成的旧结构)
+if (HOME / "wiki").is_dir():
+    WIKI_DIR = HOME / "wiki"
+# llm-wiki 的 markdown 直接散在根 + entities/concepts/… 子目录 (非 OKF 的 wiki/ 子目录)
+WIKI_CONTENT_DIR = WIKI_DIR / "wiki" if (WIKI_DIR / "wiki").is_dir() else WIKI_DIR
 WECHAT_SCRIPTS_DIR = WECHAT_FRIEND_DIR / "scripts"
 
 TALENTS_FILE = WORK_DIR / "talents.jsonl"

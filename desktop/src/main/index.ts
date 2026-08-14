@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog, Menu } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import { join, resolve } from 'path'
 import http from 'http'
@@ -87,6 +87,8 @@ async function createWindow(): Promise<void> {
 }
 
 app.whenReady().then(async () => {
+  // 去掉默认 File/Edit/View 原生菜单栏, 窗口顶部只留标题一行
+  Menu.setApplicationMenu(null)
   backendProc = startBackend()
   try {
     await waitForBackend(120000, BACKEND_PORT)

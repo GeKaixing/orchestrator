@@ -6,6 +6,7 @@ __pycache__/
 recruit.db
 logs/
 *.log
+.env
 
 # 前端构建
 node_modules/

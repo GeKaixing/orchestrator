@@ -8,7 +8,8 @@
   请求  {"id": 1, "method": "health"} | {"id": 1, "method": "call", "action": "...", "params": {...}}
   响应  {"id": 1, "ok": true, "result": {...}} | {"id": 1, "ok": false, "error": "..."}
 
-单请求串行处理 (accept → 处理 → 关闭), 天然序列化微信 UI 自动化动作.
+health 请求即时响应 (线程池, 不排队), call 请求串行执行 (锁):
+  天然序列化微信 UI 自动化动作, 同时避免长任务 (如 hermes chat 几十秒) 堵死健康检查.
 stdout 只输出一行 "PORT <n>" 供 Manager 捕获; 日志走 stderr.
 """
 
@@ -19,11 +20,15 @@ import json
 import logging
 import socket
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from .. import get_logger
 from . import registry
 
 log = get_logger("worker")
+
+_call_lock = threading.Lock()  # call 串行锁: health 不抢锁即时响应
 
 
 def _handle(agent, method: str, payload: dict) -> dict:
@@ -42,7 +47,12 @@ def _process_one(agent, conn: socket.socket) -> None:
             return
         req = json.loads(line)
         req_id = req.get("id")
-        result = _handle(agent, req.get("method") or "health", req)
+        method = req.get("method") or "health"
+        if method == "call":
+            with _call_lock:
+                result = _handle(agent, method, req)
+        else:
+            result = _handle(agent, method, req)
         resp = {"id": req_id, "ok": True, "result": result}
     except Exception as e:  # noqa: BLE001
         log.error("处理请求异常: %s", e)
@@ -57,21 +67,19 @@ def serve(agent, port: int) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("127.0.0.1", port))
-        sock.listen(16)
+        sock.listen(64)
         actual = sock.getsockname()[1]
         print(f"PORT {actual}", flush=True)
         log.info("worker %s 就绪, 监听 127.0.0.1:%d", agent.name, actual)
-        while True:
-            conn, _ = sock.accept()
-            try:
-                _process_one(agent, conn)
-            finally:
-                conn.close()
+        with ThreadPoolExecutor(max_workers=16, thread_name_prefix=f"wkr-{agent.name}") as ex:
+            while True:
+                conn, _ = sock.accept()
+                ex.submit(_process_one, agent, conn)
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Agent worker")
-    p.add_argument("name", help="agent 名: wechat|shop|rag")
+    p.add_argument("name", help="agent 名: wechat|shop|rag|hermes")
     p.add_argument("--port", type=int, default=0, help="监听端口 (0=随机)")
     p.add_argument("--selftest", action="store_true", help="跑一次 health 后退出")
     args = p.parse_args(argv)

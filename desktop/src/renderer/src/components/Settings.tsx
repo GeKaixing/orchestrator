@@ -1,6 +1,21 @@
 import { useEffect, useState } from 'react'
+import { Download, Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import { api } from '../api'
-import type { Settings } from '../types'
+import type { AgentStoreItem, Settings, UpdateCheck } from '../types'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Separator } from '@/components/ui/separator'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 
 const STAGES = ['all', 'scan', 'add', 'send', 'im', 'invite']
 const STAGE_NAME: Record<string, string> = {
@@ -20,12 +35,65 @@ interface Props {
 export default function SettingsView({ settings, onSaved }: Props): JSX.Element {
   const [form, setForm] = useState<Settings>(settings)
   const [msg, setMsg] = useState('')
+  const [store, setStore] = useState<AgentStoreItem[]>([])
+  const [busyKey, setBusyKey] = useState<string | null>(null)
+  const [storeMsg, setStoreMsg] = useState('')
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
+  const [update, setUpdate] = useState<UpdateCheck | null>(null)
+  const [updateMsg, setUpdateMsg] = useState('')
+  const [checking, setChecking] = useState(false)
+
+  const doCheck = async (force = false): Promise<void> => {
+    setChecking(true)
+    setUpdateMsg('')
+    try {
+      const r = await api<UpdateCheck>(force ? '/api/update-check?force=1' : '/api/update-check')
+      setUpdate(r)
+      setUpdateMsg(r.error || '')
+    } catch (e) {
+      setUpdateMsg(String(e))
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  useEffect(() => {
+    void doCheck()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // 仅挂载时用 settings 初始化; App 每 3s 轮询 settings 不应覆盖正在编辑的表单
   useEffect(() => {
     setForm(settings)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const loadStore = async (): Promise<void> => {
+    try {
+      setStore(await api<AgentStoreItem[]>('/api/agent-store'))
+    } catch (e) {
+      setStoreMsg(String(e))
+    }
+  }
+
+  // 下载区与表单独立, 挂载时拉一次即可 (操作后有刷新按钮逻辑)
+  useEffect(() => {
+    void loadStore()
+  }, [])
+
+  const storeAct = async (key: string, action: 'install' | 'update' | 'remove'): Promise<void> => {
+    setBusyKey(`${key}:${action}`)
+    setStoreMsg('')
+    try {
+      await api(`/api/agent-store/${key}/${action}`, { method: 'POST' })
+      await loadStore()
+    } catch (e) {
+      setStoreMsg(String(e))
+    } finally {
+      setBusyKey(null)
+      setConfirmRemove(null)
+    }
+  }
 
   const set = <K extends keyof Settings>(key: K, value: Settings[K]): void =>
     setForm((f) => ({ ...f, [key]: value }))
@@ -50,52 +118,194 @@ export default function SettingsView({ settings, onSaved }: Props): JSX.Element 
   }
 
   return (
-    <div className="view settings">
-      <h2 className="section-title">客户端默认设置（保存后「任务控制」自动预填）</h2>
+    <Card className="max-w-[720px] gap-4 py-5">
+      <CardContent className="flex flex-col gap-4 px-5">
+        <h2 className="text-[15px] font-semibold">
+          客户端默认设置（保存后「任务控制」自动预填）
+        </h2>
 
-      <label className="field">
-        <span>默认阶段</span>
-        <select value={form.stage} onChange={(e) => set('stage', e.target.value)}>
-          {STAGES.map((s) => (
-            <option key={s} value={s}>
-              {s} — {STAGE_NAME[s]}
-            </option>
-          ))}
-        </select>
-      </label>
+        <div className="flex flex-col gap-2">
+          <Label>默认阶段</Label>
+          <Select value={form.stage} onValueChange={(v) => set('stage', v)}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STAGES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s} — {STAGE_NAME[s]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
-      <div className="field-row">
-        <label className="field">
-          <span>默认 limit</span>
-          <input type="number" value={form.limit} onChange={(e) => set('limit', Number(e.target.value))} />
-        </label>
-        <label className="field">
-          <span>默认 max-pages</span>
-          <input type="number" value={form.max_pages} onChange={(e) => set('max_pages', Number(e.target.value))} />
-        </label>
-      </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-2">
+            <Label>默认 limit</Label>
+            <Input type="number" value={form.limit} onChange={(e) => set('limit', Number(e.target.value))} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label>默认 max-pages</Label>
+            <Input type="number" value={form.max_pages} onChange={(e) => set('max_pages', Number(e.target.value))} />
+          </div>
+        </div>
 
-      <label className="field">
-        <span>默认类目 cat</span>
-        <input value={form.cat} onChange={(e) => set('cat', e.target.value)} />
-      </label>
+        <div className="flex flex-col gap-2">
+          <Label>默认类目 cat</Label>
+          <Input value={form.cat} onChange={(e) => set('cat', e.target.value)} />
+        </div>
 
-      <label className="field">
-        <span>默认 contacts 文件</span>
-        <input value={form.contacts} onChange={(e) => set('contacts', e.target.value)} />
-      </label>
+        <div className="flex flex-col gap-2">
+          <Label>默认 contacts 文件</Label>
+          <Input value={form.contacts} onChange={(e) => set('contacts', e.target.value)} />
+        </div>
 
-      <label className="field">
-        <span>招商文案 (多行 = 多条消息, invite 用前 5 条)</span>
-        <textarea value={form.text} onChange={(e) => set('text', e.target.value)} rows={8} />
-      </label>
+        <div className="flex flex-col gap-2">
+          <Label>招商文案 (多行 = 多条消息, invite 用前 5 条)</Label>
+          <Textarea
+            value={form.text}
+            onChange={(e) => set('text', e.target.value)}
+            rows={8}
+            className="resize-y"
+          />
+        </div>
 
-      <div className="settings-actions">
-        <button className="btn primary" onClick={() => void save()}>
-          保存设置
-        </button>
-        {msg && <span className="msg">{msg}</span>}
-      </div>
-    </div>
+        <div className="flex items-center gap-3">
+          <Button onClick={() => void save()}>保存设置</Button>
+          {msg && <span className="text-xs text-primary">{msg}</span>}
+        </div>
+
+        <Separator className="my-2" />
+
+        <div className="flex flex-col gap-3">
+          <h2 className="text-[15px] font-semibold">子 Agent 下载</h2>
+          <p className="-mt-1 text-xs text-muted-foreground">
+            未安装的依赖项目（微信 / 微信小店）可一键克隆到 agents/ 目录
+          </p>
+
+          <div className="flex flex-col gap-2">
+            {store.map((a) => {
+              const busy = busyKey !== null
+              const installing = busyKey === `${a.key}:install`
+              const updating = busyKey === `${a.key}:update`
+              const removing = busyKey === `${a.key}:remove`
+              const isConfirming = confirmRemove === a.key
+              return (
+                <div
+                  key={a.key}
+                  className="flex items-start justify-between gap-3 rounded-md border border-border p-3"
+                >
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold">{a.name}</span>
+                      {a.installed ? (
+                        a.git ? (
+                          <Badge variant="outline">
+                            已安装{a.branch ? ` · ${a.branch}` : ''}
+                            {a.head ? ` @${a.head}` : ''}
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive">已存在（非 git）</Badge>
+                        )
+                      ) : (
+                        <Badge variant="secondary">未安装</Badge>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{a.description}</div>
+                    <div className="mono text-[11px] text-muted-foreground">{a.repo}</div>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {!a.installed && (
+                      <Button size="sm" disabled={busy} onClick={() => void storeAct(a.key, 'install')}>
+                        {installing ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+                        {installing ? '下载中' : '下载'}
+                      </Button>
+                    )}
+                    {a.installed && a.git && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => void storeAct(a.key, 'update')}
+                      >
+                        {updating ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+                        {updating ? '更新中' : '更新'}
+                      </Button>
+                    )}
+                    {a.installed && (
+                      <Button
+                        size="sm"
+                        variant={isConfirming ? 'destructive' : 'ghost'}
+                        disabled={busy}
+                        onClick={() => {
+                          if (isConfirming) void storeAct(a.key, 'remove')
+                          else setConfirmRemove(a.key)
+                        }}
+                      >
+                        {removing ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+                        {removing ? '移除中' : isConfirming ? '确认移除?' : '移除'}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+            {store.length === 0 && !storeMsg && (
+              <div className="text-xs text-muted-foreground">加载中…</div>
+            )}
+          </div>
+
+          {storeMsg && <span className="text-xs text-destructive">{storeMsg}</span>}
+        </div>
+
+        <Separator className="my-2" />
+
+        <div className="flex flex-col gap-3">
+          <h2 className="text-[15px] font-semibold">版本与更新</h2>
+          <div className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
+            <div className="flex min-w-0 flex-col gap-1">
+              <div className="flex items-center gap-2 text-sm">
+                <span className="shrink-0">当前版本</span>
+                <span className="mono text-xs text-muted-foreground">
+                  {update ? `v${update.current_version}` : '…'}
+                </span>
+                {update?.has_update && <Badge variant="outline">有新版本</Badge>}
+              </div>
+              {update?.has_update && (
+                <div className="text-xs text-muted-foreground">
+                  发现新版本 v{update.latest_version}（来自 GitHub Releases）
+                </div>
+              )}
+              {update && !update.has_update && !update.error && (
+                <div className="text-xs text-muted-foreground">已是最新版本</div>
+              )}
+              {updateMsg && <span className="text-xs text-destructive">{updateMsg}</span>}
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {update?.has_update && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void window.api.openExternal(update.release_url)}
+                >
+                  <Download className="size-3.5" />
+                  去下载
+                </Button>
+              )}
+              <Button size="sm" disabled={checking} onClick={() => void doCheck(true)}>
+                {checking ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-3.5" />
+                )}
+                检查更新
+              </Button>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }

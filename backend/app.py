@@ -13,9 +13,12 @@ from recruit.services import db
 from recruit.services import followup as followup_mod
 
 from . import agent_manager
+from . import agent_store
 from . import files as files_mod
 from . import preflight as preflight_mod
+from . import updates as updates_mod
 from .runs import manager
+from . import __version__
 
 SETTING_KEYS = ("stage", "limit", "max_pages", "cat", "contacts", "text")
 
@@ -31,7 +34,7 @@ async def _lifespan(_app: FastAPI):
     agent_manager.manager.stop_all()
 
 
-app = FastAPI(title="recruit-backend", version="0.1.0", lifespan=_lifespan)
+app = FastAPI(title="recruit-backend", version=__version__, lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -60,10 +63,26 @@ class SettingsPayload(BaseModel):
     text: str = ""
 
 
+class WxshopRunPayload(BaseModel):
+    argv: list[str] = []
+    timeout: int = 600
+
+
+class RagAskPayload(BaseModel):
+    question: str
+    thread_id: str | None = None
+    timeout: int | None = None
+
+
 # ── 系统 ───────────────────────────────────────────────────
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True}
+
+
+@app.get("/api/update-check")
+def update_check(force: int = 0) -> dict:
+    return updates_mod.check_update(force=bool(force))
 
 
 @app.get("/api/preflight")
@@ -111,6 +130,43 @@ def agent_restart(name: str) -> dict:
     if name not in agent_manager.AGENT_NAMES:
         raise HTTPException(status_code=404, detail=f"未知 agent: {name}")
     return agent_manager.manager.restart(name)
+
+
+@app.post("/api/agents/rag/ask")
+def rag_ask(payload: RagAskPayload) -> dict:
+    """提交问题给 RAG 知识库, 返回 {reply, thread_id}. thread_id 为空则新建线程."""
+    if not payload.question.strip():
+        raise HTTPException(status_code=400, detail="问题不能为空")
+    from recruit.agents import client as agent_client
+    result = agent_client.call(
+        "rag", "ask",
+        question=payload.question,
+        thread_id=payload.thread_id,
+        timeout=payload.timeout,
+    )
+    if not result.get("success"):
+        raise HTTPException(status_code=502, detail=result.get("error") or "RAG 调用失败")
+    return result.get("data") or {}
+
+
+@app.post("/api/agents/wiki/ask")
+def wiki_ask(payload: RagAskPayload) -> dict:
+    """向本地知识库提问 (统一走 hermes agent 的 query 动作).
+
+    Hermes 自己读 Obsidian 知识库 (llm-wiki) 定位页面并回答, 引用来源页面;
+    不再使用独立 wiki agent (已废弃). 端点路径保留兼容旧调用.
+    """
+    if not payload.question.strip():
+        raise HTTPException(status_code=400, detail="问题不能为空")
+    from recruit.agents import client as agent_client
+    result = agent_client.call(
+        "hermes", "query",
+        question=payload.question,
+        timeout=payload.timeout or 300,
+    )
+    if not result.get("success"):
+        raise HTTPException(status_code=502, detail=result.get("error") or "知识库问答失败")
+    return result.get("data") or {}
 
 
 # ── 监控 ───────────────────────────────────────────────────
@@ -225,3 +281,39 @@ def put_settings(payload: SettingsPayload) -> dict:
     for k, v in data.items():
         db.set_setting(k, v)
     return data
+
+
+# ── 子 Agent 下载 ──────────────────────────────────────────
+@app.get("/api/agent-store")
+def agent_store_list() -> list[dict]:
+    return agent_store.list_agents()
+
+
+def _store_action(key: str, action: str) -> dict:
+    try:
+        agent_store._get(key)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return getattr(agent_store, action)(key)
+
+
+@app.post("/api/agent-store/{key}/install")
+def agent_store_install(key: str) -> dict:
+    return _store_action(key, "install")
+
+
+@app.post("/api/agent-store/{key}/update")
+def agent_store_update(key: str) -> dict:
+    return _store_action(key, "update")
+
+
+@app.post("/api/agent-store/{key}/remove")
+def agent_store_remove(key: str) -> dict:
+    return _store_action(key, "remove")
+
+
+# ── wxshop CLI 调试 ─────────────────────────────────────────
+@app.post("/api/wxshop/run")
+def wxshop_run(payload: WxshopRunPayload) -> dict:
+    from . import wxshop_debug
+    return wxshop_debug.run(payload.argv, timeout=min(payload.timeout, 900))
