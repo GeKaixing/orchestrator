@@ -129,8 +129,8 @@ def scan(state: RecruitState) -> dict:
             accounts.set_current(acc)
             log.info("✅ 账号 %s 成功提取联系方式, 跟进表写入 %d 条", acc, n)
             return {"error": None, "account": acc}
-        # 勾选了「有联系方式」筛选仍无任何联系方式 → 该账号提取次数大概率耗尽
-        failures.append(f"{acc}: 未提取到任何联系方式 (每日提取次数可能耗尽)")
+        # 勾选了「有联系方式」筛选仍无任何联系方式 → 可能是提取次数耗尽, 也可能是提取失败
+        failures.append(f"{acc}: 未提取到任何联系方式 (可能每日次数耗尽, 也可能提取失败)")
         log.warning("账号 %s 未提取到联系方式, 尝试下一个账号", acc)
 
     return {"error": (
