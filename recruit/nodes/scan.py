@@ -145,6 +145,7 @@ def scan(state: RecruitState) -> dict:
     account = accounts.current()
     ordered = [account] + [a for a in accounts.list_accounts() if a != account]
     failures: list[str] = []
+    saved = 0
     for acc in ordered:
         if not _run_scan_with(acc, cfg):
             failures.append(f"{acc}: scan/提取命令失败")
@@ -153,6 +154,7 @@ def scan(state: RecruitState) -> dict:
         # 需求6: 进入详情页后无论是否提取到联系方式, 达人画像都进跟进表
         # (联系方式列有则填, 没有则留空)
         n = _write_followup()
+        saved += n
         if _has_contacts(CONTACTS_FILE):
             accounts.set_current(acc)
             log.info("✅ 账号 %s 成功提取联系方式, 跟进表写入 %d 条", acc, n)
@@ -160,6 +162,11 @@ def scan(state: RecruitState) -> dict:
         # 勾选了「有联系方式」筛选仍无任何联系方式 → 可能是提取次数耗尽, 也可能是提取失败
         failures.append(f"{acc}: 未提取到任何联系方式 (可能每日次数耗尽, 也可能提取失败)")
         log.warning("账号 %s 未提取到联系方式, 尝试下一个账号", acc)
+
+    if saved > 0:
+        # 达人画像已存进跟进表, 不判死; 联系方式缺失仅提示 (后续补账号/等额度再提取)
+        log.warning("所有账号均未提取到联系方式, 但 %d 条达人画像已存进跟进表 (联系方式列留空)", saved)
+        return {"error": None, "account": account, "no_contacts": True, "scan_saved": saved}
 
     return {"error": (
         "所有小店账号均无法提取联系方式:\n  " + "\n  ".join(failures) + "\n"

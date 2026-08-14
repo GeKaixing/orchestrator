@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     graph = build_graph()
     result = graph.invoke(
         {"config": cfg, "text": text, "contacts": [], "todo": [], "rooms": [],
-         "results": {}, "error": None},
+         "results": {}, "error": None, "no_contacts": None, "scan_saved": None},
         config={"recursion_limit": 200},
     )
     if result.get("error"):

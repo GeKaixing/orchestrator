@@ -93,13 +93,17 @@ def _read_jsonl(path: Path) -> list[dict]:
 
 
 # ── 报告 ────────────────────────────────────────────────────
-def write_report(state: dict, todo: list[dict]) -> None:
+def write_report(state: dict, todo: list[dict], note: str = "") -> None:
     done_count = sum(1 for it in todo if state.get(it["wxid"], {}).get("stage") in paths.STAGES_DONE)
     lines = [
         "# 达人招商编排报告",
         "",
         f"- 生成时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"- 本轮处理: {len(todo)} 个 (另 {done_count} 个此前已完成, 已跳过)",
+    ]
+    if note:
+        lines.append(f"- {note}")
+    lines += [
         "",
         "| 微信号 | 昵称 | 阶段 | 备注 |",
         "|---|---|---|---|",

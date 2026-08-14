@@ -58,6 +58,15 @@ def route_error(state: RecruitState) -> str:
     return "end" if state.get("error") else "next"
 
 
+def route_after_scan(state: RecruitState) -> str:
+    """scan 后路由: error→end; 无联系方式(但画像已存跟进表)→直接报告; 否则→load_contacts."""
+    if state.get("error"):
+        return "end"
+    if state.get("no_contacts"):
+        return "report"
+    return "load"
+
+
 def build_graph() -> StateGraph:
     g = StateGraph(RecruitState)
     g.add_node("preflight", preflight)
@@ -77,7 +86,8 @@ def build_graph() -> StateGraph:
         {"end": END, "im": "im_recruit", "invite": "invite", "reply": "reply",
          "scan": "scan", "load": "load_contacts"},
     )
-    g.add_conditional_edges("scan", route_error, {"end": END, "next": "load_contacts"})
+    g.add_conditional_edges(
+        "scan", route_after_scan, {"end": END, "report": "report", "load": "load_contacts"})
     g.add_conditional_edges("load_contacts", route_error, {"end": END, "next": "build_todo"})
     g.add_conditional_edges(
         "build_todo", fan_out,

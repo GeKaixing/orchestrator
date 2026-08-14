@@ -22,6 +22,8 @@ class RecruitState(TypedDict):
     rooms: list[dict]                          # im 模式
     results: Annotated[dict, merge_results]    # wxid -> {stage, reason, updated}
     error: str | None
+    no_contacts: bool | None                   # scan: 有达人画像但未提取到联系方式
+    scan_saved: int | None                     # scan: 存进跟进表的达人条数
 
 
 class ContactState(TypedDict):
