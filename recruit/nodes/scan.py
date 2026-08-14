@@ -73,7 +73,10 @@ def _has_contacts(path: Path) -> bool:
 
 
 def _write_followup() -> int:
-    """把 talents(画像) + contacts(联系方式) 合并 upsert 进达人跟进表. 返回写入数."""
+    """把 talents(画像) + contacts(联系方式) + metrics(带货者信息) 合并 upsert 进达人跟进表.
+
+    metrics 只映射进跟进表列, 不保留在 contacts.jsonl (写库后剥除). 返回写入数.
+    """
     if not TALENTS_FILE.exists():
         return 0
     talents: list[dict] = []
@@ -84,7 +87,7 @@ def _write_followup() -> int:
                 talents.append(json.loads(line))
             except Exception:  # noqa: BLE001
                 continue
-    # nickname → {微信号, 手机号}
+    # nickname → {微信号, 手机号, metrics}
     contacts: dict[str, dict] = {}
     if CONTACTS_FILE.exists():
         for line in CONTACTS_FILE.read_text(encoding="utf-8").splitlines():
@@ -100,14 +103,39 @@ def _write_followup() -> int:
                 contacts[nick] = {
                     "微信号": (r.get("wxId") or r.get("微信号") or r.get("wx_id") or "").strip(),
                     "手机号": (r.get("手机号") or r.get("phone") or "").strip(),
+                    "metrics": r.get("metrics") or None,
                 }
     n = 0
     for row in talents:
         nick = (row.get("nickname") or "").strip()
         if followup.upsert_daren(row, contacts.get(nick)):
             n += 1
+    _strip_metrics_from_contacts()
     log.info("达人跟进表 upsert: %d/%d 条", n, len(talents))
     return n
+
+
+def _strip_metrics_from_contacts() -> None:
+    """把 CONTACTS_FILE 每行的 metrics key 剥掉重写 (metrics 只进跟进表, 不留在 jsonl)."""
+    if not CONTACTS_FILE.exists():
+        return
+    lines: list[str] = []
+    changed = False
+    for line in CONTACTS_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            r = json.loads(line)
+        except Exception:  # noqa: BLE001
+            lines.append(line)
+            continue
+        if "metrics" in r:
+            r.pop("metrics")
+            changed = True
+        lines.append(json.dumps(r, ensure_ascii=False))
+    if changed:
+        CONTACTS_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def scan(state: RecruitState) -> dict:

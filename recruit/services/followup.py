@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+import re
 from datetime import datetime
 from typing import Any
 
@@ -71,6 +72,74 @@ def _fmt_wan(v: Any) -> str:
     return str(v)
 
 
+# ── IM 页带货者信息 (metrics) → 跟进表列映射 ─────────────────────────
+# 粉丝特征标题 → 列 别名映射 (IM 页 .feature-title 的中文标题)
+_FANS_TITLE_TO_COL = {
+    "性别": "粉丝特征-性别",
+    "年龄": "粉丝特征-年龄",
+    "地域": "粉丝特征-地域",
+    "人群": "粉丝特征-人群",
+    "人群类别": "粉丝特征-人群",
+    "购物偏好": "粉丝特征-购物偏好",
+    "购买力": "粉丝特征-购买力",
+    "购买力区间": "粉丝特征-购买力",
+}
+
+
+def _to_int(v: Any) -> int | None:
+    s = re.sub(r"\D", "", str(v or ""))
+    return int(s) if s else None
+
+
+def _cat_item(item: Any) -> tuple[str, str]:
+    """品类分布 item → (name, percent); 兼容 {name,percent} 与 {名称:percent}."""
+    if not isinstance(item, dict):
+        return "", str(item or "")
+    if "name" in item or "percent" in item:
+        return (item.get("name") or "").strip(), (item.get("percent") or "").strip()
+    for k, v in item.items():
+        return str(k or "").strip(), str(v or "").strip()
+    return "", ""
+
+
+def _cat_percent(item: Any) -> float:
+    _, percent = _cat_item(item)
+    m = re.search(r"[\d.]+", percent)
+    return float(m.group(0)) if m else 0.0
+
+
+def _metrics_to_columns(m: dict | None) -> dict[str, Any]:
+    """IM 页带货者信息 → 跟进表列 (只填原本为空的爬取列)."""
+    if not m:
+        return {}
+    out: dict[str, Any] = {}
+    ov = m.get("带货概览") or {}
+    if ov.get("总销量"):
+        out["总销量"] = str(ov["总销量"])
+    if ov.get("跟买人数"):
+        out["跟买人数"] = str(ov["跟买人数"])
+    if ov.get("回头客"):
+        n = _to_int(ov["回头客"])
+        if n:
+            out["回头客"] = n
+    if ov.get("近30日客单价"):
+        out["客单价"] = str(ov["近30日客单价"])
+    cats = (m.get("带货画像") or {}).get("品类分布") or []
+    cats = sorted(cats, key=_cat_percent, reverse=True)[:3]
+    for i, item in enumerate(cats, 1):
+        name, percent = _cat_item(item)
+        out[f"品类占比{i}"] = (f"{name} {percent}".strip() if name else percent)
+    feats = ((m.get("粉丝特征") or {}).get("全部") or {}).get("features") or {}
+    for title, v in feats.items():
+        col = _FANS_TITLE_TO_COL.get(title)
+        if not col or not isinstance(v, dict):
+            continue
+        label = (v.get("label") or "").strip()
+        ratio = (v.get("ratio") or "").strip()
+        out[col] = f"{label} {ratio}".strip()
+    return out
+
+
 # ── 昵称定位 (同昵称重复只更新第一条, 与 wxshop _db_upsert 一致) ─────────
 def _find_rowid(conn: sqlite3.Connection, nick: str) -> int | None:
     row = conn.execute(
@@ -98,8 +167,8 @@ def _upsert_row(conn: sqlite3.Connection, nick: str, values: dict[str, Any]) -> 
 def upsert_daren(row: dict, contacts: dict | None = None) -> dict | None:
     """把一条达人记录 upsert 进跟进表 (爬取列 + 联系方式).
 
-    row 来自 talents/contacts.jsonl; contacts: {微信号, 手机号} (可空).
-    返回新/更新后的行 dict, 失败返回 None.
+    row 来自 talents/contacts.jsonl; contacts: {微信号, 手机号, metrics} (可空;
+    metrics 为 IM 页带货者信息, 映射进跟进表对应爬取列). 返回新/更新后的行 dict, 失败返回 None.
     """
     nick = (row.get("nickname") or "").strip()
     if not nick:
@@ -122,6 +191,7 @@ def upsert_daren(row: dict, contacts: dict | None = None) -> dict | None:
         values["微信号"] = c["微信号"]
     if c.get("手机号"):
         values["手机号"] = c["手机号"]
+    values.update(_metrics_to_columns(c.get("metrics")))
     # 顺带记录 room_id 供 orchestrator 索引 (跟进表没有该列, 用备注原因不覆盖 →
     # 这里不写 room_id; roomId 仍由 contacts.jsonl / darens 表维护)
     try:

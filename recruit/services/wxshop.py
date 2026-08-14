@@ -72,11 +72,13 @@ def backfill_room_ids(talents: Path) -> int:
 
 
 def contact(talents: Path, contacts: Path, account: str | None = None) -> bool:
+    """daren-contact 批量: 取联系方式 + (--metrics) 顺带抓 IM 页带货者信息."""
     py = _venv_python(WXSHOP_DIR)
     if not py:
         log.error("找不到 wxshop venv")
         return False
-    proc = _run([py, "-m", "wxshop", "daren-contact", "--in", str(talents), "--out", str(contacts)],
+    proc = _run([py, "-m", "wxshop", "daren-contact", "--metrics",
+                 "--in", str(talents), "--out", str(contacts)],
                 WXSHOP_DIR, timeout=1800, label="contact", env_extra=_env(account))
     return proc is not None and proc.returncode == 0 and contacts.exists()
 
