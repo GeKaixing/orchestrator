@@ -30,6 +30,8 @@ WXSHOP_DIR = _sibling("wxshop-cli")
 WECHAT_FRIEND_DIR = _sibling("wechat-friend-add")
 RAG_DIR = _sibling("rag")
 WIKI_DIR = _sibling("wiki")
+# openwiki CLI 子项目 (agents/openwiki, Personal 模式本地知识脑); 未 clone 时回退 ~/Desktop/openwiki
+OPENWIKI_DIR = _sibling("openwiki")
 # 知识源优先用本地 Obsidian 知识库 (llm-wiki, 原 openwiki OKF wiki 的替代);
 # 不存在时回退 agents/wiki (openwiki 生成的旧结构)
 if (HOME / "wiki").is_dir():

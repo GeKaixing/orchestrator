@@ -151,16 +151,16 @@ def rag_ask(payload: RagAskPayload) -> dict:
 
 @app.post("/api/agents/wiki/ask")
 def wiki_ask(payload: RagAskPayload) -> dict:
-    """向本地知识库提问 (统一走 hermes agent 的 query 动作).
+    """向本地知识库提问 (统一走 openwiki agent 的 query 动作).
 
-    Hermes 自己读 Obsidian 知识库 (llm-wiki) 定位页面并回答, 引用来源页面;
-    不再使用独立 wiki agent (已废弃). 端点路径保留兼容旧调用.
+    OpenWiki (Personal 模式) 自己读 ~/.openwiki/wiki 本地知识脑定位页面并回答;
+    hermes agent 已废弃. 端点路径保留兼容旧调用.
     """
     if not payload.question.strip():
         raise HTTPException(status_code=400, detail="问题不能为空")
     from recruit.agents import client as agent_client
     result = agent_client.call(
-        "hermes", "query",
+        "openwiki", "query",
         question=payload.question,
         timeout=payload.timeout or 300,
     )

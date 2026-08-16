@@ -32,6 +32,21 @@ AGENTS = [
         "repo": "https://github.com/GeKaixing/wechat-friend-add.git",
         "dir": "wechat-friend-add",
     },
+    {
+        "key": "openwiki",
+        "name": "知识库 (OpenWiki)",
+        "description": "OpenWiki 个人知识脑 CLI (Node): npx openwiki personal 问答, 知识库 ~/.openwiki/wiki",
+        "repo": "git@github.com:GeKaixing/openwiki.git",
+        "dir": "openwiki",
+        "node": True,
+    },
+    {
+        "key": "wiki",
+        "name": "知识源 (wiki)",
+        "description": "有机地标领域 wiki (OKF 风格, markdown 在根 + entities/concepts), openwiki 知识脑的数据源",
+        "repo": "git@github.com:GeKaixing/wiki.git",
+        "dir": "wiki",
+    },
 ]
 
 AGENTS_DIR = PROJECT_ROOT / "agents"
@@ -105,6 +120,19 @@ def install(key: str) -> dict:
     if proc.returncode != 0:
         shutil.rmtree(p, ignore_errors=True)
         return {"ok": False, "error": proc.stderr.strip() or "git clone 失败"}
+    # Node 子项目 (openwiki): clone 后装依赖
+    if a.get("node") and (p / "package.json").exists():
+        try:
+            np = subprocess.run(
+                ["npm", "install", "--no-audit", "--no-fund"],
+                cwd=str(p), capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=CLONE_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": "npm install 超时", "path": str(p)}
+        if np.returncode != 0:
+            return {"ok": False, "error": np.stderr.strip()[-500:] or "npm install 失败",
+                    "path": str(p)}
     log.info("已下载 %s -> %s", a["key"], p)
     return {"ok": True, "path": str(p)}
 

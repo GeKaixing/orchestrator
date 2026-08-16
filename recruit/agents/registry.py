@@ -7,17 +7,17 @@ from concurrent.futures import ThreadPoolExecutor
 
 from .. import get_logger
 from .base import BaseAgent
-from .hermes import agent as hermes_agent
+from .openwiki import agent as openwiki_agent
 from .rag import agent as rag_agent
 from .shop import agent as shop_agent
 from .wechat import agent as wechat_agent
 
 log = get_logger("agents")
 
-# 知识问答统一走 hermes agent (Hermes 自己读知识库回答), 不再维护独立 wiki agent.
-# wiki.py 已废弃: 检索/合成能力由 hermes `query` 动作覆盖, 保留文件仅作历史参考, 不注册.
+# 知识问答统一走 openwiki agent (Personal 模式本地知识脑回答), 不再维护独立 wiki agent.
+# hermes.py 已废弃: 知识库问答由 openwiki `query` 动作覆盖, 文件已删除.
 REGISTRY: dict[str, BaseAgent] = {
-    a.name: a for a in (wechat_agent, shop_agent, rag_agent, hermes_agent)
+    a.name: a for a in (wechat_agent, shop_agent, rag_agent, openwiki_agent)
 }
 
 

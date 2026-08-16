@@ -9,7 +9,7 @@
   响应  {"id": 1, "ok": true, "result": {...}} | {"id": 1, "ok": false, "error": "..."}
 
 health 请求即时响应 (线程池, 不排队), call 请求串行执行 (锁):
-  天然序列化微信 UI 自动化动作, 同时避免长任务 (如 hermes chat 几十秒) 堵死健康检查.
+  天然序列化微信 UI 自动化动作, 同时避免长任务 (如 openwiki 问答几十秒) 堵死健康检查.
 stdout 只输出一行 "PORT <n>" 供 Manager 捕获; 日志走 stderr.
 """
 
@@ -79,7 +79,7 @@ def serve(agent, port: int) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Agent worker")
-    p.add_argument("name", help="agent 名: wechat|shop|rag|hermes")
+    p.add_argument("name", help="agent 名: wechat|shop|rag|openwiki")
     p.add_argument("--port", type=int, default=0, help="监听端口 (0=随机)")
     p.add_argument("--selftest", action="store_true", help="跑一次 health 后退出")
     args = p.parse_args(argv)

@@ -30,8 +30,8 @@ log = get_logger("agent_manager")
 
 CREATE_NEW_PROCESS_GROUP = 0x00000200 if os.name == "nt" else 0
 
-# wiki agent 已废弃 (知识问答统一走 hermes), 不再托管 worker 进程
-AGENT_NAMES = ("wechat", "shop", "rag", "hermes")
+# 知识问答统一走 openwiki agent (Personal 模式本地知识脑), 与 wechat/shop 同为 worker 进程
+AGENT_NAMES = ("wechat", "shop", "rag", "openwiki")
 POLL_INTERVAL = 3
 MAX_CONSECUTIVE_FAIL = 3
 LOG_DIR = WORK_DIR / "logs" / "agents"

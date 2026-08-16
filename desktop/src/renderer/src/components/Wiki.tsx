@@ -111,7 +111,7 @@ function WikiChat({ online }: { online: boolean }): JSX.Element {
           </Button>
         </div>
         <CardDescription>
-          向本地知识库提问，由 Hermes Agent 自己读取 Obsidian/llm-wiki 知识库定位页面并回答（不再是独立 wiki 检索 agent）
+          向本地知识库提问，由 OpenWiki Agent（Personal 模式）自己读本地知识脑定位页面并回答
         </CardDescription>
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col gap-3 px-6">
@@ -196,7 +196,7 @@ export default function Wiki(): JSX.Element {
   const load = useCallback(async () => {
     try {
       const list = await api<AgentStatus[]>('/api/agents')
-      setAgent(list.find((x) => x.name === 'hermes') ?? null)
+      setAgent(list.find((x) => x.name === 'openwiki') ?? null)
     } catch (e) {
       console.error(e)
     }
@@ -207,7 +207,7 @@ export default function Wiki(): JSX.Element {
   const act = async (action: string): Promise<void> => {
     setBusy(action)
     try {
-      await api(`/api/agents/hermes/${action}`, { method: 'POST' })
+      await api(`/api/agents/openwiki/${action}`, { method: 'POST' })
       await load()
     } catch (e) {
       console.error(e)
@@ -219,7 +219,7 @@ export default function Wiki(): JSX.Element {
   const runHealth = async (): Promise<void> => {
     setBusy('health')
     try {
-      setLive(await api<{ ok: boolean; detail?: string }>('/api/agents/hermes/health'))
+      setLive(await api<{ ok: boolean; detail?: string }>('/api/agents/openwiki/health'))
     } catch (e) {
       setLive({ ok: false, detail: String(e) })
     } finally {
@@ -239,9 +239,9 @@ export default function Wiki(): JSX.Element {
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
               <Library className="size-5 text-primary" />
-              Hermes 知识库服务
+              OpenWiki 知识库服务
             </CardTitle>
-            <CardDescription>本机 Hermes Agent（hermes chat CLI · 自己读知识库回答）</CardDescription>
+            <CardDescription>本机 OpenWiki Agent（Personal 模式 · 自己读知识库回答）</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4 px-6">
             <div className="flex items-center gap-3">
@@ -303,13 +303,13 @@ export default function Wiki(): JSX.Element {
           </CardHeader>
           <CardContent className="px-6 text-xs leading-relaxed text-muted-foreground">
             <p>
-              知识库问答统一由 <strong>Hermes Agent</strong> 完成：通过本机 <code className="mono">hermes chat</code> CLI
-              调用 Hermes 自身（读文件、检索、推理），先读知识库根目录 index.md 定位页面，再读取
-              entities/、concepts/ 等具体页面综合回答，并注明来源页面。
+              知识库问答统一由 <strong>OpenWiki Agent</strong> 完成：通过 <code className="mono">agents/openwiki</code> 子项目的
+              <code className="mono">npx openwiki personal</code> 调用 OpenWiki（Personal 模式，本地知识脑）自己读
+              <code className="mono">~/.openwiki/wiki</code> 定位页面并回答。
             </p>
             <p className="mt-2">
-              知识库目录为 <code className="mono">~/wiki</code>（Obsidian llm-wiki 仓库，markdown 散在根 + entities/concepts 等子目录）。
-              原独立 wiki 检索 agent 已废弃（检索/合成能力由 Hermes 覆盖）。RAG 仍走外部 LangGraph 向量服务（localhost:2024）。
+              数据源为 <code className="mono">~/wiki</code>（OKF 风格领域 wiki，经 git-repo 连接器 ingest 合成到个人知识脑）。
+              hermes agent 已废弃。RAG 仍走外部 LangGraph 向量服务（localhost:2024）。
             </p>
           </CardContent>
         </Card>

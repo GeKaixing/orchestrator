@@ -7,12 +7,12 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
-const AGENTS: AgentStatusName[] = ['wechat', 'shop', 'rag', 'hermes']
+const AGENTS: AgentStatusName[] = ['wechat', 'shop', 'rag', 'openwiki']
 const AGENT_LABEL: Record<AgentStatusName, string> = {
   wechat: '微信 Agent',
   shop: '微信小店 Agent',
   rag: 'RAG Agent',
-  hermes: 'Hermes Agent'
+  openwiki: 'OpenWiki Agent'
 }
 const STATE_LABEL: Record<string, string> = {
   running: '运行中',

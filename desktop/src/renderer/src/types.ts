@@ -58,7 +58,7 @@ export interface UpdateCheck {
   error?: string
 }
 
-export type AgentStatusName = 'wechat' | 'shop' | 'rag' | 'hermes'
+export type AgentStatusName = 'wechat' | 'shop' | 'rag' | 'openwiki'
 export type AgentState = 'stopped' | 'starting' | 'running' | 'degraded' | 'error'
 
 export interface AgentStatus {

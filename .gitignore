@@ -18,7 +18,7 @@ dist/
 
 # agents/ 子项目 (wxshop-cli / wechat-friend-add) 保留各自独立 git 仓库,
 # orchestrator 整个忽略, 不纳入本仓库 (含 .wxshop 登录态/.env 等敏感产物)
-agents/
+/agents/
 
 # 根目录空占位 lockfile (desktop/package-lock.json 需要保留)
 /package-lock.json
