@@ -36,7 +36,7 @@ AGENTS = [
         "key": "openwiki",
         "name": "知识库 (OpenWiki)",
         "description": "OpenWiki 个人知识脑 CLI (Node): npx openwiki personal 问答, 知识库 ~/.openwiki/wiki",
-        "repo": "git@github.com:GeKaixing/openwiki.git",
+        "repo": "https://github.com/GeKaixing/openwiki.git",
         "dir": "openwiki",
         "node": True,
     },
