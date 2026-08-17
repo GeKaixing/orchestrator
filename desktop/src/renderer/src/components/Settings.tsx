@@ -42,6 +42,8 @@ export default function SettingsView({ settings, onSaved }: Props): JSX.Element 
   const [update, setUpdate] = useState<UpdateCheck | null>(null)
   const [updateMsg, setUpdateMsg] = useState('')
   const [checking, setChecking] = useState(false)
+  const [agentConfigs, setAgentConfigs] = useState<Record<string, { path: string; text: string }>>({})
+  const [configMsg, setConfigMsg] = useState('')
 
   const doCheck = async (force = false): Promise<void> => {
     setChecking(true)
@@ -80,6 +82,10 @@ export default function SettingsView({ settings, onSaved }: Props): JSX.Element 
   useEffect(() => {
     void loadStore()
   }, [])
+  useEffect(() => { void api<Record<string, { path: string; text: string }>>('/api/agent-configs').then(setAgentConfigs).catch((e) => setConfigMsg(String(e))) }, [])
+  const saveAgentConfig = async (key: string): Promise<void> => {
+    try { await api(`/api/agent-configs/${key}`, { method: 'PUT', body: { text: agentConfigs[key]?.text || '' } }); setConfigMsg(`${key} 配置已保存`) } catch (e) { setConfigMsg(String(e)) }
+  }
 
   const storeAct = async (key: string, action: 'install' | 'update' | 'remove'): Promise<void> => {
     setBusyKey(`${key}:${action}`)
@@ -174,6 +180,20 @@ export default function SettingsView({ settings, onSaved }: Props): JSX.Element 
         <div className="flex items-center gap-3">
           <Button onClick={() => void save()}>保存设置</Button>
           {msg && <span className="text-xs text-primary">{msg}</span>}
+        </div>
+
+        <Separator className="my-2" />
+
+        <div className="flex flex-col gap-3">
+          <h2 className="text-[15px] font-semibold">子 Agent 配置</h2>
+          {Object.entries(agentConfigs).map(([key, cfg]) => (
+            <div key={key} className="flex flex-col gap-2 rounded-md border border-border p-3">
+              <div className="flex items-center justify-between"><Label>{key}</Label><Button size="sm" onClick={() => void saveAgentConfig(key)} disabled={key === 'rag'}>保存</Button></div>
+              <div className="text-[11px] text-muted-foreground">{cfg.path}</div>
+              <Textarea value={cfg.text} onChange={(e) => setAgentConfigs((s) => ({ ...s, [key]: { ...cfg, text: e.target.value } }))} rows={4} className="font-mono text-xs" />
+            </div>
+          ))}
+          {configMsg && <span className="text-xs text-muted-foreground">{configMsg}</span>}
         </div>
 
         <Separator className="my-2" />

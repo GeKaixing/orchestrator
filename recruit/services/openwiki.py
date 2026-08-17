@@ -7,10 +7,12 @@
 from __future__ import annotations
 
 import re
+import os
+import shutil
+import subprocess
 
 from .. import get_logger
 from ..paths import OPENWIKI_DIR
-from .runner import _run
 
 log = get_logger("openwiki")
 
@@ -43,12 +45,24 @@ def query(question: str, timeout: float = 300) -> tuple[bool, str]:
     ok_b, detail = _cli_ok()
     if not ok_b:
         return False, detail
-    proc = _run(
-        ["npx", "--no-install", "openwiki", "personal", question],
-        OPENWIKI_DIR, timeout=int(timeout), label="openwiki",
-    )
-    if proc is None:
-        return False, "openwiki 执行超时/异常"
+    npx = shutil.which("npx.cmd" if os.name == "nt" else "npx")
+    if not npx:
+        return False, "找不到 npx，请确认已安装 Node.js，并将其加入系统 PATH"
+    cmd = [npx, "--no-install", "openwiki", "personal", question]
+    try:
+        proc = subprocess.run(
+            cmd, cwd=str(OPENWIKI_DIR), capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=int(timeout),
+            env={**os.environ, "PYTHONUTF8": "1"},
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"openwiki 执行超时 ({int(timeout)} 秒)"
+    except PermissionError as e:
+        return False, f"openwiki 权限错误: {e}"
+    except OSError as e:
+        return False, f"openwiki 启动失败: {e}"
+    except Exception as e:  # noqa: BLE001
+        return False, f"openwiki 执行异常: {e}"
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "").strip()
         return False, f"openwiki 退出码 {proc.returncode}: {err[-500:]}"

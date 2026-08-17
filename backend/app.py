@@ -17,6 +17,7 @@ from . import agent_store
 from . import files as files_mod
 from . import preflight as preflight_mod
 from . import updates as updates_mod
+from . import configs as configs_mod
 from .runs import manager
 from . import __version__
 
@@ -72,6 +73,9 @@ class RagAskPayload(BaseModel):
     question: str
     thread_id: str | None = None
     timeout: int | None = None
+
+class AgentConfigPayload(BaseModel):
+    text: str
 
 
 # ── 系统 ───────────────────────────────────────────────────
@@ -273,6 +277,14 @@ def get_settings() -> dict:
     for k in SETTING_KEYS:
         out[k] = db.get_setting(k)
     return out
+
+@app.get("/api/agent-configs")
+def agent_configs() -> dict:
+    return configs_mod.read_all()
+
+@app.put("/api/agent-configs/{key}")
+def put_agent_config(key: str, payload: AgentConfigPayload) -> dict:
+    return configs_mod.write_config(key, payload.text)
 
 
 @app.put("/api/settings")
