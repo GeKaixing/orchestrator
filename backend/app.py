@@ -306,7 +306,10 @@ def _store_action(key: str, action: str) -> dict:
         agent_store._get(key)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    return getattr(agent_store, action)(key)
+    try:
+        return getattr(agent_store, action)(key)
+    except OSError as e:
+        raise HTTPException(status_code=409, detail=f"{action} 失败: {e}") from e
 
 
 @app.post("/api/agent-store/{key}/install")
@@ -321,6 +324,16 @@ def agent_store_update(key: str) -> dict:
 
 @app.post("/api/agent-store/{key}/remove")
 def agent_store_remove(key: str) -> dict:
+    # A running worker can hold native dependencies (for example greenlet.pyd)
+    # open on Windows, which prevents its project directory from being removed.
+    worker_by_store_key = {
+        "wxshop-cli": "shop",
+        "wechat-friend-add": "wechat",
+        "openwiki": "openwiki",
+    }
+    worker = worker_by_store_key.get(key)
+    if worker:
+        agent_manager.manager.stop(worker)
     return _store_action(key, "remove")
 
 

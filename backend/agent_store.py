@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import stat
 import subprocess
 import time
 from pathlib import Path
@@ -74,9 +76,14 @@ def _git(p: Path, *args: str, timeout: int = CLONE_TIMEOUT) -> subprocess.Comple
 
 def _rmtree_retry(p: Path, attempts: int = 3) -> None:
     """Windows 下目录可能被安全软件/进程短暂占用, rmtree 失败时重试几次."""
+    def _clear_readonly(func, path, _exc_info) -> None:
+        """Git pack files can be read-only on Windows; clear that attribute and retry."""
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+
     for i in range(attempts):
         try:
-            shutil.rmtree(p)
+            shutil.rmtree(p, onerror=_clear_readonly)
             return
         except OSError:
             if i == attempts - 1:
