@@ -74,11 +74,62 @@ def _git(p: Path, *args: str, timeout: int = CLONE_TIMEOUT) -> subprocess.Comple
     )
 
 
-def _rmtree_retry(p: Path, attempts: int = 3) -> None:
-    """Windows 下目录可能被安全软件/进程短暂占用, rmtree 失败时重试几次."""
+def _kill_processes_under(p: Path, timeout: int = 30) -> list[int]:
+    """杀掉可执行文件位于项目目录 p 内的进程 (如 .venv/Scripts/python.exe).
+
+    这些进程会把 .pyd/.dll 锁住, 导致 rmtree 报 [WinError 5] 拒绝访问.
+    返回被杀掉的 pid 列表. 非 Windows 或无 wmic 时返回 [] (不视为错误).
+    """
+    if os.name != "nt":
+        return []
+    killed: list[int] = []
+    try:
+        # 不带 WHERE: wmic 的 LIKE 无法匹配带反斜杠的路径 (Win10 无效查询),
+        # 改为全量枚举后在本进程内按前缀过滤.
+        res = subprocess.run(
+            ["wmic", "process", "get", "ProcessId,ExecutablePath", "/format:csv"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=timeout,
+        )
+    except Exception:  # noqa: BLE001
+        return []
+    lines = [ln for ln in (res.stdout or "").splitlines() if ln.strip()]
+    if not lines:
+        return []
+    header = [h.strip().lower() for h in lines[0].split(",")]
+    try:
+        pid_idx = header.index("processid")
+        path_idx = header.index("executablepath")
+    except ValueError:
+        return []
+    prefix = str(p).lower()
+    for ln in lines[1:]:
+        cols = [c.strip() for c in ln.split(",")]
+        if len(cols) <= max(pid_idx, path_idx):
+            continue
+        pid_s, path = cols[pid_idx], cols[path_idx]
+        if not pid_s.isdigit() or not path:
+            continue
+        if int(pid_s) == os.getpid():  # 别杀自己
+            continue
+        if path.lower().startswith(prefix):
+            try:
+                subprocess.run(["taskkill", "/T", "/F", "/PID", pid_s],
+                               capture_output=True, timeout=timeout)
+                killed.append(int(pid_s))
+            except Exception:  # noqa: BLE001
+                pass
+    return killed
+
+
+def _rmtree_retry(p: Path, attempts: int = 8) -> None:
+    """Windows 下 .pyd/.dll 被进程占用时 rmtree 失败, 逐步加大间隔重试."""
     def _clear_readonly(func, path, _exc_info) -> None:
         """Git pack files can be read-only on Windows; clear that attribute and retry."""
-        os.chmod(path, stat.S_IWRITE)
+        try:
+            os.chmod(path, stat.S_IWRITE)
+        except OSError:
+            pass
         func(path)
 
     for i in range(attempts):
@@ -88,7 +139,8 @@ def _rmtree_retry(p: Path, attempts: int = 3) -> None:
         except OSError:
             if i == attempts - 1:
                 raise
-            time.sleep(0.5)
+            # 前几次短等, 后面逐步拉长 (0.5→0.5→1→1→2→2→3)
+            time.sleep(0.5 if i < 2 else (i if i < 6 else 3))
 
 
 def list_agents() -> list[dict]:
@@ -116,7 +168,16 @@ def install(key: str) -> dict:
     a = _get(key)
     p = _target(a)
     if p.exists():
-        return {"ok": False, "error": f"{a['dir']} 已存在, 不能覆盖"}
+        if (p / ".git").exists():
+            return {"ok": False, "error": f"{a['dir']} 已安装, 不能覆盖"}
+        # 目录存在但非 git 残留 (上次 remove 未清干净), 先尝试清理
+        try:
+            _kill_processes_under(p)
+            time.sleep(0.5)
+            _rmtree_retry(p)
+            log.info("已清理残留目录 %s", p)
+        except OSError as e:
+            return {"ok": False, "error": f"{a['dir']} 已存在且无法删除 (非 git): {e}"}
     AGENTS_DIR.mkdir(parents=True, exist_ok=True)
     try:
         proc = subprocess.run(
@@ -181,6 +242,11 @@ def remove(key: str) -> dict:
     p = _target(a)
     if not p.exists():
         return {"ok": False, "error": f"{a['dir']} 未安装"}
+    # 先杀掉占用 .venv 里 .pyd/.dll 的进程 (正在跑的 run/孤立进程), 再删目录
+    killed = _kill_processes_under(p)
+    if killed:
+        log.info("已终止 %d 个占用 %s 的进程: %s", len(killed), a["dir"], killed)
+        time.sleep(1.0)  # 等 Windows 释放文件句柄
     _rmtree_retry(p)
     log.info("已移除 %s -> %s", a["key"], p)
     return {"ok": True, "path": str(p)}

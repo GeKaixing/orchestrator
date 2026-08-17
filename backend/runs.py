@@ -108,5 +108,14 @@ class RunManager:
             db.update_run(run_id, status="stopped")
         return {"ok": True}
 
+    def stop_current(self) -> bool:
+        """停止当前正在跑的 run (无则 no-op); 返回是否确实发出了停止."""
+        with self._lock:
+            proc, run_id = self._proc, self._run_id
+        if proc is not None and proc.poll() is None and run_id is not None:
+            self.stop(run_id)
+            return True
+        return False
+
 
 manager = RunManager()

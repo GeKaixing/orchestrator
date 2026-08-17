@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from recruit import get_logger
 from recruit.paths import REPORT_FILE
 from recruit.services import db
 from recruit.services import followup as followup_mod
@@ -20,6 +21,8 @@ from . import updates as updates_mod
 from . import configs as configs_mod
 from .runs import manager
 from . import __version__
+
+log = get_logger("app")
 
 SETTING_KEYS = ("stage", "limit", "max_pages", "cat", "contacts", "text")
 
@@ -309,11 +312,33 @@ def _store_action(key: str, action: str) -> dict:
     try:
         return getattr(agent_store, action)(key)
     except OSError as e:
-        raise HTTPException(status_code=409, detail=f"{action} 失败: {e}") from e
+        # Windows: .pyd/.dll 仍被占用, 自动停 worker/run 并重试后仍失败 → 提示用户
+        import gc
+        gc.collect()
+        raise HTTPException(
+            status_code=409,
+            detail=f"{action} 失败: {e}。已自动停止相关 worker/任务并多次重试; "
+                   "请关闭仍在占用该目录的程序 (如正在跑的扫码/加好友任务) 后重试",
+        ) from e
+
+
+def _stop_worker_for_store_key(key: str) -> None:
+    """安装/移除前停掉对应 worker 和正在跑的任务, 避免 Windows .pyd 文件锁."""
+    # run 子进程会调用 agent 的 .venv python (add/send), 也会锁住 .pyd/.dll
+    try:
+        if manager.stop_current():
+            log.info("已停止正在运行的 run 以释放子 agent 文件")
+    except Exception:  # noqa: BLE001
+        pass
+    _WORKER_MAP = {"wxshop-cli": "shop", "wechat-friend-add": "wechat", "openwiki": "openwiki"}
+    worker = _WORKER_MAP.get(key)
+    if worker:
+        agent_manager.manager.stop(worker)
 
 
 @app.post("/api/agent-store/{key}/install")
 def agent_store_install(key: str) -> dict:
+    _stop_worker_for_store_key(key)
     return _store_action(key, "install")
 
 
@@ -324,16 +349,7 @@ def agent_store_update(key: str) -> dict:
 
 @app.post("/api/agent-store/{key}/remove")
 def agent_store_remove(key: str) -> dict:
-    # A running worker can hold native dependencies (for example greenlet.pyd)
-    # open on Windows, which prevents its project directory from being removed.
-    worker_by_store_key = {
-        "wxshop-cli": "shop",
-        "wechat-friend-add": "wechat",
-        "openwiki": "openwiki",
-    }
-    worker = worker_by_store_key.get(key)
-    if worker:
-        agent_manager.manager.stop(worker)
+    _stop_worker_for_store_key(key)
     return _store_action(key, "remove")
 
 

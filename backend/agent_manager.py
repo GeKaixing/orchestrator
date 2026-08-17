@@ -124,6 +124,11 @@ class AgentManager:
             proc = self._procs.get(name)
         if proc is not None and proc.poll() is None:
             _kill_tree(proc.pid)
+            # 等待进程真正退出 (Windows 释放 .pyd/.dll 句柄需要时间)
+            for _ in range(20):
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.2)
         with self._lock:
             self._procs[name] = None
         self._consecutive_fail[name] = 0
