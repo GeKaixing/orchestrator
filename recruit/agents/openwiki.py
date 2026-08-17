@@ -27,7 +27,7 @@ class OpenWikiAgent(BaseAgent):
             question = str(params.get("question") or "").strip()
             if not question:
                 return fail("问题不能为空")
-            timeout = float(params.get("timeout") or 300)
+            timeout = float(params.get("timeout") or openwiki.DEFAULT_QUERY_TIMEOUT)
             ok_b, reply = openwiki.query(question, timeout=timeout)
             return ok({"reply": reply}) if ok_b else fail(reply)
         return fail(f"未知动作: {action}")

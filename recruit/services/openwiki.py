@@ -38,7 +38,26 @@ def _cli_ok() -> tuple[bool, str]:
     return True, f"openwiki CLI 可用 ({OPENWIKI_DIR})"
 
 
-def query(question: str, timeout: float = 300) -> tuple[bool, str]:
+DEFAULT_QUERY_TIMEOUT = 60
+
+
+def _stop_process_tree(proc: subprocess.Popen[str]) -> None:
+    """Stop npx and the node process it launches (Windows does not do this by default)."""
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                capture_output=True, timeout=15,
+            )
+        else:
+            proc.kill()
+    except Exception:  # noqa: BLE001
+        proc.kill()
+
+
+def query(question: str, timeout: float = DEFAULT_QUERY_TIMEOUT) -> tuple[bool, str]:
     """向本地知识脑提一个问题, 返回 (ok, reply_or_err)."""
     if not question.strip():
         return False, "问题不能为空"
@@ -50,12 +69,16 @@ def query(question: str, timeout: float = 300) -> tuple[bool, str]:
         return False, "找不到 npx，请确认已安装 Node.js，并将其加入系统 PATH"
     cmd = [npx, "--no-install", "openwiki", "personal", question]
     try:
-        proc = subprocess.run(
-            cmd, cwd=str(OPENWIKI_DIR), capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=int(timeout),
+        proc = subprocess.Popen(
+            cmd, cwd=str(OPENWIKI_DIR),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace",
             env={**os.environ, "PYTHONUTF8": "1"},
         )
+        stdout, stderr = proc.communicate(timeout=int(timeout))
     except subprocess.TimeoutExpired:
+        _stop_process_tree(proc)
+        proc.communicate()
         return False, f"openwiki 执行超时 ({int(timeout)} 秒)"
     except PermissionError as e:
         return False, f"openwiki 权限错误: {e}"
@@ -64,9 +87,9 @@ def query(question: str, timeout: float = 300) -> tuple[bool, str]:
     except Exception as e:  # noqa: BLE001
         return False, f"openwiki 执行异常: {e}"
     if proc.returncode != 0:
-        err = (proc.stderr or proc.stdout or "").strip()
+        err = (stderr or stdout or "").strip()
         return False, f"openwiki 退出码 {proc.returncode}: {err[-500:]}"
-    reply = _strip_banner(proc.stdout or "")
+    reply = _strip_banner(stdout or "")
     if not reply:
         return False, "openwiki 无输出"
     return True, reply

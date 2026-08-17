@@ -56,6 +56,7 @@ function WikiChat({ online }: { online: boolean }): JSX.Element {
   const [input, setInput] = useState('')
   const [asking, setAsking] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const requestRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     const el = scrollRef.current
@@ -68,18 +69,29 @@ function WikiChat({ online }: { online: boolean }): JSX.Element {
     setMessages((m) => [...m, { role: 'user', text: q }])
     setInput('')
     setAsking(true)
+    const controller = new AbortController()
+    requestRef.current = controller
+    const timeout = window.setTimeout(() => controller.abort(), 65_000)
     try {
       const res = await api<{ reply: string; sources: WikiSource[] }>('/api/agents/wiki/ask', {
         method: 'POST',
-        body: { question: q }
+        body: { question: q, timeout: 60 },
+        signal: controller.signal
       })
       setMessages((m) => [...m, { role: 'assistant', text: res.reply }])
     } catch (e) {
-      setMessages((m) => [...m, { role: 'error', text: String(e) }])
+      const message = e instanceof DOMException && e.name === 'AbortError'
+        ? '检索超时，已停止等待。请稍后重试。'
+        : String(e)
+      setMessages((m) => [...m, { role: 'error', text: message }])
     } finally {
+      window.clearTimeout(timeout)
+      requestRef.current = null
       setAsking(false)
     }
   }
+
+  const cancel = (): void => requestRef.current?.abort()
 
   const reset = (): void => setMessages([])
 
@@ -182,6 +194,12 @@ function WikiChat({ online }: { online: boolean }): JSX.Element {
             <SendHorizontal className="size-4" />
             {asking ? '检索中…' : '发送'}
           </Button>
+          {asking && (
+            <Button size="sm" variant="outline" onClick={cancel}>
+              <Square className="size-3.5" />
+              取消
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

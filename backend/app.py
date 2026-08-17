@@ -166,7 +166,7 @@ def wiki_ask(payload: RagAskPayload) -> dict:
     result = agent_client.call(
         "openwiki", "query",
         question=payload.question,
-        timeout=payload.timeout or 300,
+        timeout=payload.timeout or 60,
     )
     if not result.get("success"):
         raise HTTPException(status_code=502, detail=result.get("error") or "知识库问答失败")
