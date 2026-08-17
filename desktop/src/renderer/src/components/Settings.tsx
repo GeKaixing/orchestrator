@@ -201,8 +201,8 @@ export default function SettingsView({ settings, onSaved }: Props): JSX.Element 
                       <span className="text-sm font-semibold">{a.name}</span>
                       {a.installed ? (
                         a.git ? (
-                          <Badge variant="outline">
-                            已安装{a.branch ? ` · ${a.branch}` : ''}
+                          <Badge variant={a.ready ? 'outline' : 'destructive'}>
+                            {a.ready ? '已安装' : '需安装依赖'}{a.branch ? ` · ${a.branch}` : ''}
                             {a.head ? ` @${a.head}` : ''}
                           </Badge>
                         ) : (
@@ -231,7 +231,7 @@ export default function SettingsView({ settings, onSaved }: Props): JSX.Element 
                         onClick={() => void storeAct(a.key, 'update')}
                       >
                         {updating ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-                        {updating ? '更新中' : '更新'}
+                        {updating ? '处理中' : a.ready ? '更新' : '安装依赖'}
                       </Button>
                     )}
                     {a.installed && (

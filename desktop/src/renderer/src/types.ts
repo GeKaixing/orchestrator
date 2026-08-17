@@ -84,6 +84,7 @@ export interface AgentStoreItem {
   repo: string
   dir: string
   installed: boolean
+  ready: boolean
   git: boolean
   branch?: string
   head?: string

@@ -44,7 +44,7 @@ AGENTS = [
         "key": "wiki",
         "name": "知识源 (wiki)",
         "description": "有机地标领域 wiki (OKF 风格, markdown 在根 + entities/concepts), openwiki 知识脑的数据源",
-        "repo": "git@github.com:GeKaixing/wiki.git",
+        "repo": "https://github.com/GeKaixing/wiki.git",
         "dir": "wiki",
     },
 ]
@@ -89,6 +89,9 @@ def list_agents() -> list[dict]:
     for a in AGENTS:
         p = _target(a)
         entry: dict = {**a, "installed": p.exists(), "git": (p / ".git").exists()}
+        # 对 Node 子项目来说，仓库存在不等于 CLI 可用；还必须完成 npm 依赖安装。
+        entry["ready"] = bool(entry["installed"] and (not a.get("node") or
+            (p / "node_modules" / "openwiki" / "package.json").exists()))
         if entry["git"]:
             try:
                 head = _git(p, "rev-parse", "--short", "HEAD", timeout=10)
@@ -150,6 +153,18 @@ def update(key: str) -> dict:
         return {"ok": False, "error": f"git pull 超时 ({CLONE_TIMEOUT}s)"}
     if proc.returncode != 0:
         return {"ok": False, "error": proc.stderr.strip() or "git pull 失败"}
+    if a.get("node") and (p / "package.json").exists():
+        try:
+            np = subprocess.run(
+                ["npm", "install", "--no-audit", "--no-fund"],
+                cwd=str(p), capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=CLONE_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": "npm install 超时", "path": str(p)}
+        if np.returncode != 0:
+            return {"ok": False, "error": np.stderr.strip()[-500:] or "npm install 失败",
+                    "path": str(p)}
     log.info("已更新 %s", a["key"])
     return {"ok": True, "detail": proc.stdout.strip()}
 
