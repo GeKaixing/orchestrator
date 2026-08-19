@@ -18,6 +18,29 @@ from recruit.paths import PROJECT_ROOT
 
 log = get_logger("agent_store")
 
+
+def _resolve_exe(name: str) -> str | None:
+    """按当前平台解析可执行文件完整路径 (Windows 下 npm 需 npm.cmd)。"""
+    if os.name == "nt" and not name.lower().endswith((".exe", ".cmd", ".bat")):
+        # Windows 优先尝试带扩展名, 避免 subprocess 裸名解析不到
+        if name == "npm":
+            name = "npm.cmd"
+    return shutil.which(name)
+
+
+def _check_git() -> tuple[bool, str]:
+    """检查 git 是否可用."""
+    if _resolve_exe("git"):
+        return True, ""
+    return False, "未找到 git，请安装 Git 并加入系统 PATH"
+
+
+def _check_npm() -> tuple[bool, str]:
+    """检查 npm 是否可用."""
+    if _resolve_exe("npm"):
+        return True, ""
+    return False, "未找到 npm，请安装 Node.js 并加入系统 PATH"
+
 # 可下载的子 agent 注册表; dir 需匹配 recruit/paths._sibling 查找的项目名
 AGENTS = [
     {
@@ -67,25 +90,90 @@ def _target(a: dict) -> Path:
 
 
 def _git(p: Path, *args: str, timeout: int = CLONE_TIMEOUT) -> subprocess.CompletedProcess:
+    git = _resolve_exe("git")
+    if not git:
+        raise FileNotFoundError("未找到 git，请安装 Git 并加入系统 PATH")
     return subprocess.run(
-        ["git", "-C", str(p), *args],
+        [git, "-C", str(p), *args],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         timeout=timeout,
     )
 
 
 def _kill_processes_under(p: Path, timeout: int = 30) -> list[int]:
-    """杀掉可执行文件位于项目目录 p 内的进程 (如 .venv/Scripts/python.exe).
+    """杀掉与目录 p 绑定的进程, 释放被锁的文件 (.log / .pyd / .dll 等).
 
-    这些进程会把 .pyd/.dll 锁住, 导致 rmtree 报 [WinError 5] 拒绝访问.
-    返回被杀掉的 pid 列表. 非 Windows 或无 wmic 时返回 [] (不视为错误).
+    旧逻辑只杀「可执行文件在 p 内」的进程 (.venv/Scripts/python.exe), 但 worker 往往
+    从 orchestrator/.venv 或 uv 目录启动, exe 不在 p 内, 却能打开 agents/<name>/logs/*.log
+    并一直持有句柄 -> 旧逻辑杀不到, rmtree 报 [WinError 32] 进程无法访问.
+
+    这里优先用 psutil 按三类信号精准猎杀 (任一满足即杀, 但排除自身与 API 主进程):
+      * 持有打开的文件句柄位于 p 内 (最关键: 直接定位锁持有者);
+      * 当前工作目录 (cwd) 在 p 内 (进程从目录内运行, 可能随后打开文件);
+      * (保留) 可执行文件位于 p 内.
+    无 psutil 时退回 wmic 的 exe 前缀逻辑. 返回被杀 pid 列表; 失败返回 [].
     """
     if os.name != "nt":
         return []
-    killed: list[int] = []
+    prefix = str(p).lower().rstrip("\\") + "\\"
+    self_pid = os.getpid()
+
+    def _is_api_server(cl: str) -> bool:
+        low = cl.lower()
+        return any(t in low for t in ("uvicorn", "app:app", "backend.app",
+                                      "backend\\app.py", "-m backend", "run_desktop"))
+
     try:
-        # 不带 WHERE: wmic 的 LIKE 无法匹配带反斜杠的路径 (Win10 无效查询),
-        # 改为全量枚举后在本进程内按前缀过滤.
+        import psutil  # 可能被 import 失败的环境
+    except Exception:  # noqa: BLE001
+        psutil = None
+
+    if psutil is not None:
+        killed: list[int] = []
+        # 只有这些运行时进程才可能持有 agent 目录下的文件 (.log/.pyd/.dll),
+        # 限制 open_files() 探测范围, 避免逐个扫描 svchost 等系统进程、以及句柄极多的
+        # electron 进程导致卡顿. (锁通常由 python/node 写的 worker 持有, 不会是 electron)
+        _PROBE_NAMES = {"python.exe", "python3.exe", "pythonw.exe", "node.exe"}
+        for proc in psutil.process_iter(["pid", "name", "exe", "cwd", "cmdline"]):
+            try:
+                pid = int(proc.info["pid"])
+                if pid == self_pid:
+                    continue
+                cl = " ".join(proc.info.get("cmdline") or [])
+                if _is_api_server(cl):  # 绝对不杀 API 主进程
+                    continue
+                exe = (proc.info.get("exe") or "").lower()
+                cwd = ""
+                try:
+                    cwd = (proc.info.get("cwd") or "").lower()
+                except Exception:  # noqa: BLE001
+                    cwd = ""
+                hit = exe.startswith(prefix) or cwd.startswith(prefix)
+                if not hit:
+                    # 仅对可能持有 agent 文件的运行时进程探测打开的句柄, 避免逐个扫描
+                    # svchost 等系统进程导致卡顿 (worker 多为 python/node/electron).
+                    if (proc.info.get("name") or "").lower() in _PROBE_NAMES:
+                        try:
+                            for f in proc.open_files():
+                                if f.path.lower().startswith(prefix):
+                                    hit = True
+                                    break
+                        except Exception:  # noqa: BLE001
+                            pass
+                if hit:
+                    try:
+                        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)],
+                                       capture_output=True, timeout=timeout)
+                        killed.append(pid)
+                    except Exception:  # noqa: BLE001
+                        pass
+            except (psutil.NoSuchProcess, psutil.AccessDenied):  # noqa: BLE001
+                continue
+        return killed
+
+    # fallback: 仅按 exe 前缀过滤 (无 psutil)
+    killed = []
+    try:
         res = subprocess.run(
             ["wmic", "process", "get", "ProcessId,ExecutablePath", "/format:csv"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -102,7 +190,6 @@ def _kill_processes_under(p: Path, timeout: int = 30) -> list[int]:
         path_idx = header.index("executablepath")
     except ValueError:
         return []
-    prefix = str(p).lower()
     for ln in lines[1:]:
         cols = [c.strip() for c in ln.split(",")]
         if len(cols) <= max(pid_idx, path_idx):
@@ -110,7 +197,7 @@ def _kill_processes_under(p: Path, timeout: int = 30) -> list[int]:
         pid_s, path = cols[pid_idx], cols[path_idx]
         if not pid_s.isdigit() or not path:
             continue
-        if int(pid_s) == os.getpid():  # 别杀自己
+        if int(pid_s) == self_pid:
             continue
         if path.lower().startswith(prefix):
             try:
@@ -122,16 +209,128 @@ def _kill_processes_under(p: Path, timeout: int = 30) -> list[int]:
     return killed
 
 
-def _rmtree_retry(p: Path, attempts: int = 8) -> None:
-    """Windows 下 .pyd/.dll 被进程占用时 rmtree 失败, 逐步加大间隔重试."""
-    def _clear_readonly(func, path, _exc_info) -> None:
-        """Git pack files can be read-only on Windows; clear that attribute and retry."""
-        try:
-            os.chmod(path, stat.S_IWRITE)
-        except OSError:
-            pass
-        func(path)
+# Windows 保留设备名: 任何以这些名字命名的真实文件/目录, Win32 的 DeleteFile/
+# RemoveDirectory 都会失败 (被当成 NUL/CON... 设备, 报 [WinError 5] 拒绝访问),
+# 且现代 Windows 默认关闭 8.3 短名, 也没有可用的短名可绕过. 只能通过 "相对父目录
+# 句柄" 的 NT 调用绕过保留名检查来删除 (见 _delete_reserved_name).
+_RESERVED_NAMES = (
+    {"con", "prn", "aux", "nul"}
+    | {f"com{i}" for i in range(1, 10)}
+    | {f"lpt{i}" for i in range(1, 10)}
+)
 
+
+def _delete_reserved_name(path: Path) -> bool:
+    """尽力删除一个名字命中 Windows 保留设备名 (nul/con/prn/aux/com1-9/lpt1-9) 的
+    真实文件/目录. 普通 DeleteFile/RemoveDirectory 会因 [WinError 5] 失败; 这里打开
+    *父目录* 句柄, 用 ntdll.NtOpenFile 相对该句柄打开目标, 再标记删除-on-close.
+    成功返回 True, 否则返回 False (调用方再退回 "移走目录" 方案). 仅 Windows 生效.
+    """
+    if os.name != "nt":
+        return False
+    if path.name.lower() not in _RESERVED_NAMES:
+        return False
+    try:
+        import ctypes
+        from ctypes import (wintypes, Structure, POINTER, byref, c_void_p,
+                            c_ulong, c_ushort, c_wchar)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        ntdll = ctypes.WinDLL("ntdll", use_last_error=True)
+
+        class _US(Structure):
+            _fields_ = [("Length", c_ushort), ("MaximumLength", c_ushort),
+                        ("Buffer", POINTER(c_wchar))]
+
+        class _OA(Structure):
+            _fields_ = [("Length", c_ulong), ("RootDirectory", wintypes.HANDLE),
+                        ("ObjectName", POINTER(_US)), ("Attributes", c_ulong),
+                        ("SecurityDescriptor", c_void_p),
+                        ("SecurityQualityOfService", c_void_p)]
+
+        NtOpenFile = ntdll.NtOpenFile
+        NtOpenFile.argtypes = [POINTER(wintypes.HANDLE), c_ulong, POINTER(_OA),
+                               c_void_p, c_ulong, c_ulong]
+        NtOpenFile.restype = ctypes.c_long
+        NtSetInformationFile = ntdll.NtSetInformationFile
+        NtSetInformationFile.argtypes = [wintypes.HANDLE, c_void_p, c_void_p,
+                                        c_ulong, c_ulong]
+        NtSetInformationFile.restype = ctypes.c_long
+        NtClose = ntdll.NtClose
+        NtClose.argtypes = [wintypes.HANDLE]
+        NtClose.restype = ctypes.c_long
+
+        parent = str(path.parent)
+        # 打开父目录句柄: SYNCHRONIZE|FILE_READ_ATTRIBUTES|FILE_DELETE_CHILD|FILE_LIST_DIRECTORY,
+        # FILE_FLAG_BACKUP_SEMANTICS 允许打开目录, FILE_FLAG_OPEN_REPARSE_POINT 避免跟随链接.
+        h_parent = kernel32.CreateFileW(
+            parent, 0x100000 | 0x80 | 0x10 | 0x1, 0x1 | 0x2 | 0x4, None, 3,
+            0x2000000 | 0x200000, None)
+        if h_parent == wintypes.HANDLE(-1).value:
+            return False
+        name = path.name
+        buf = ctypes.create_unicode_buffer(name)
+        us = _US()
+        us.Length = len(name) * 2
+        us.MaximumLength = ctypes.sizeof(buf)
+        us.Buffer = ctypes.cast(buf, POINTER(c_wchar))
+        us._keep = buf
+        oa = _OA()
+        oa.Length = ctypes.sizeof(_OA)
+        oa.RootDirectory = wintypes.HANDLE(h_parent)
+        oa.ObjectName = ctypes.pointer(us)
+        oa.Attributes = 0x40  # OBJ_CASE_INSENSITIVE
+        h_file = wintypes.HANDLE()
+        iosb = (ctypes.c_ulong * 2)()
+        status = NtOpenFile(byref(h_file), 0x10000, byref(oa), byref(iosb),
+                            0x1 | 0x2 | 0x4, 0)  # DELETE
+        if status != 0:
+            kernel32.CloseHandle(h_parent)
+            return False
+        # FileDispositionInfo (0x0D): 标记删除, 关闭句柄时真正删除.
+        disp = ctypes.c_ubyte(1)
+        st = NtSetInformationFile(h_file, byref(iosb), byref(disp), 1, 0x0D)
+        NtClose(h_file)
+        kernel32.CloseHandle(h_parent)
+        return st == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _move_aside(p: Path) -> Path | None:
+    """把目录改名为 `<name>.removed-<时间戳>`, 使其脱离 agents/<name> 激活位置.
+    重命名只改顶层目录自身条目, 不会按名打开内部保留名/被锁文件, 因此总能成功.
+    返回新路径; 若全部失败返回 None.
+    """
+    parent = p.parent
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    for i in range(0, 100):
+        suffix = "" if i == 0 else f"-{i}"
+        dest = parent / f"{p.name}.removed-{stamp}{suffix}"
+        try:
+            p.rename(dest)
+            return dest
+        except OSError:
+            continue
+    return None
+
+
+def _clear_readonly(func, path, _exc_info) -> None:
+    """rmtree 的 onerror: 先清只读位重试; 仍失败且命中 Windows 保留名时, 用 NT 相对
+    父目录句柄删除 (绕过保留名检查). 都不行则原样抛出, 由 _rmtree_retry 的调用方退回移走方案."""
+    try:
+        os.chmod(path, stat.S_IWRITE)
+    except OSError:
+        pass
+    try:
+        func(path)
+    except OSError:
+        if _delete_reserved_name(Path(path)):
+            return
+        raise
+
+
+def _rmtree_retry(p: Path, attempts: int = 8) -> None:
+    """Windows 下 .pyd/.dll 被进程占用 / 含 Windows 保留名文件时 rmtree 失败, 逐步加大间隔重试."""
     for i in range(attempts):
         try:
             shutil.rmtree(p, onerror=_clear_readonly)
@@ -179,28 +378,41 @@ def install(key: str) -> dict:
         except OSError as e:
             return {"ok": False, "error": f"{a['dir']} 已存在且无法删除 (非 git): {e}"}
     AGENTS_DIR.mkdir(parents=True, exist_ok=True)
+    # Check git availability
+    ok_git, err_git = _check_git()
+    if not ok_git:
+        return {"ok": False, "error": err_git}
+    git_exe = _resolve_exe("git")
     try:
         proc = subprocess.run(
-            ["git", "clone", "--depth", "1", a["repo"], str(p)],
+            [git_exe, "clone", "--depth", "1", a["repo"], str(p)],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=CLONE_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
         shutil.rmtree(p, ignore_errors=True)
         return {"ok": False, "error": f"git clone 超时 ({CLONE_TIMEOUT}s)"}
+    except (FileNotFoundError, OSError) as e:
+        return {"ok": False, "error": f"找不到 git 可执行文件: {e}"}
     if proc.returncode != 0:
         shutil.rmtree(p, ignore_errors=True)
         return {"ok": False, "error": proc.stderr.strip() or "git clone 失败"}
     # Node 子项目 (openwiki): clone 后装依赖
     if a.get("node") and (p / "package.json").exists():
+        ok_npm, err_npm = _check_npm()
+        if not ok_npm:
+            return {"ok": False, "error": err_npm}
+        npm_exe = _resolve_exe("npm")
         try:
             np = subprocess.run(
-                ["npm", "install", "--no-audit", "--no-fund"],
+                [npm_exe, "install", "--no-audit", "--no-fund"],
                 cwd=str(p), capture_output=True, text=True, encoding="utf-8",
                 errors="replace", timeout=CLONE_TIMEOUT,
             )
         except subprocess.TimeoutExpired:
             return {"ok": False, "error": "npm install 超时", "path": str(p)}
+        except (FileNotFoundError, OSError) as e:
+            return {"ok": False, "error": f"找不到 npm 可执行文件: {e}", "path": str(p)}
         if np.returncode != 0:
             return {"ok": False, "error": np.stderr.strip()[-500:] or "npm install 失败",
                     "path": str(p)}
@@ -215,6 +427,10 @@ def update(key: str) -> dict:
         return {"ok": False, "error": f"{a['dir']} 未安装"}
     if not (p / ".git").exists():
         return {"ok": False, "error": f"{p} 不是 git 仓库, 无法更新"}
+
+    ok_git, err_git = _check_git()
+    if not ok_git:
+        return {"ok": False, "error": err_git}
     try:
         proc = _git(p, "pull", "--ff-only")
     except subprocess.TimeoutExpired:
@@ -222,14 +438,20 @@ def update(key: str) -> dict:
     if proc.returncode != 0:
         return {"ok": False, "error": proc.stderr.strip() or "git pull 失败"}
     if a.get("node") and (p / "package.json").exists():
+        ok_npm, err_npm = _check_npm()
+        if not ok_npm:
+            return {"ok": False, "error": err_npm}
         try:
+            npm_exe = _resolve_exe("npm")
             np = subprocess.run(
-                ["npm", "install", "--no-audit", "--no-fund"],
+                [npm_exe, "install", "--no-audit", "--no-fund"],
                 cwd=str(p), capture_output=True, text=True, encoding="utf-8",
                 errors="replace", timeout=CLONE_TIMEOUT,
             )
         except subprocess.TimeoutExpired:
             return {"ok": False, "error": "npm install 超时", "path": str(p)}
+        except (FileNotFoundError, OSError) as e:
+            return {"ok": False, "error": f"找不到 npm 可执行文件: {e}", "path": str(p)}
         if np.returncode != 0:
             return {"ok": False, "error": np.stderr.strip()[-500:] or "npm install 失败",
                     "path": str(p)}
@@ -247,6 +469,21 @@ def remove(key: str) -> dict:
     if killed:
         log.info("已终止 %d 个占用 %s 的进程: %s", len(killed), a["dir"], killed)
         time.sleep(1.0)  # 等 Windows 释放文件句柄
-    _rmtree_retry(p)
-    log.info("已移除 %s -> %s", a["key"], p)
-    return {"ok": True, "path": str(p)}
+    try:
+        _rmtree_retry(p)
+        log.info("已移除 %s -> %s", a["key"], p)
+        return {"ok": True, "path": str(p)}
+    except OSError as e:
+        # 仍删不掉 (含 Windows 保留名文件如 nul, 或 .pyd/.dll / .log 仍被锁):
+        # 失败前再杀一次 (worker 可能刚被重生并重新打开文件), 然后整目录改名移走,
+        # 使其脱离 agents/<name> 激活位置, 避免在 UI 反复 409. 用户稍后可在管理员/WSL 下手动彻底删除.
+        _kill_processes_under(p)
+        time.sleep(0.5)
+        moved = _move_aside(p)
+        if moved:
+            log.warning("rmtree 失败(%s): 已将 %s 移至 %s", e, p, moved)
+            return {"ok": True, "path": str(moved),
+                    "warning": f"无法用普通方式删除(可能含 Windows 保留名文件如 nul, "
+                               f"或 .pyd/.dll 仍被占用): 已将目录改名为 {moved.name}，"
+                               f"可稍后在管理员命令行 / WSL 下手动彻底删除"}
+        raise

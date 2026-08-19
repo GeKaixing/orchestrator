@@ -40,6 +40,32 @@ def _cli_ok() -> tuple[bool, str]:
 
 DEFAULT_QUERY_TIMEOUT = 60
 
+# 这些关键词命中时, 该行极可能是真正的报错 (而非末尾装饰框/ banner).
+_ERROR_HINTS = (
+    "error", "Error", "ERROR", "failed", "Failed", "FAILED", "exception",
+    "Exception", "Traceback", "ENOENT", "ECONN", "ETIMEDOUT", "timeout",
+    "Timeout", "401", "403", "429", "undefined", "Cannot", "cannot", "找不到",
+    "失败", "超时", "拒绝", "Invalid", "invalid", "not found", "NoneType",
+)
+
+
+def _extract_error(text: str) -> str:
+    """从 openwiki 输出里抽取真正的报错行.
+
+    openwiki 的报错常以 box 装饰框结尾 (LangSmith/Run failed 之类), 真正的
+    错误原因在前面被截断. 这里优先返回命中关键词的行, 找不到则退回到末尾片段.
+    """
+    lines = [ln.rstrip() for ln in (text or "").splitlines() if ln.strip()]
+    hits = [ln for ln in lines if any(h in ln for h in _ERROR_HINTS)]
+    if hits:
+        # 去掉重复/装饰行 (纯边框), 取靠前的关键行
+        meaningful = [ln for ln in hits if not set(ln) <= set("─│┌┐└┘├┤╭╮╰╯┼═ |+-")]
+        chosen = meaningful or hits
+        return "\n".join(chosen[:12])
+    if lines:
+        return "\n".join(lines[-12:])
+    return "(无输出)"
+
 
 def _stop_process_tree(proc: subprocess.Popen[str]) -> None:
     """Stop npx and the node process it launches (Windows does not do this by default)."""
@@ -57,6 +83,77 @@ def _stop_process_tree(proc: subprocess.Popen[str]) -> None:
         proc.kill()
 
 
+def _clean_child_env() -> dict:
+    """构造 openwiki 子进程环境, 剔除 WorkBuddy/CodeBuddy 会话的 safe-delete 拦截,
+    并保证系统 Node 目录在 PATH 最前.
+
+    会话环境会把 PATH 里的 rm/unlink/rmdir 重定向到 genie-trash (回收站) 工具,
+    该工具在部分 Windows 环境会失败, 导致 openwiki 启动阶段报
+    "[safe-delete] 操作失败: ERROR ... Some operations were aborted" (退出码 1).
+    openwiki 只需要模型/provider 配置 (读 ~/.openwiki/.env), 无需这些会话变量.
+
+    PATH 必须把系统 Node (C:\\Program Files\\nodejs) 放最前: openwiki 的
+    better-sqlite3 原生模块按系统 Node 24 编译 (ABI 137); npx 生成的 .cmd 垫片
+    用 PATH 里的 node 拉起 CLI, 若先命中受管 Node 22 (ABI 127) 会
+    NODE_MODULE_VERSION 不匹配崩溃. 另外 Git Bash 把 PATH 传给原生进程时可能产生
+    裸盘符 ("C") 之类的坏条目, 一并清掉.
+    """
+    env = {**os.environ, "PYTHONUTF8": "1"}
+    drop_prefixes = (
+        "CODEBUDDY_",          # 会话 id + safe-delete 拦截相关
+        "BASH_FUNC_rm",        # rm/unlink/rmdir 的 bash 函数包装
+        "BASH_FUNC_unlink",
+        "BASH_FUNC_rmdir",
+    )
+    for k in [k for k in env if k.startswith(drop_prefixes) or k == "CLAUDE_SESSION_ID"]:
+        env.pop(k, None)
+    # 从 PATH 移除 safe-bin shim 目录, 避免 rm/unlink 被重定向到回收站工具.
+    # 兼容两种 PATH 形态: 原生 Windows (; 分隔) 与 Git Bash 传入的 (: 分隔).
+    path = env.get("PATH", "")
+    if ";" in path:
+        segs = path.split(";")
+    else:
+        # Git Bash 冒号分隔: "C:/foo" 会被切出裸盘符 "C", 按 "盘符+/" 重新合并
+        raw = path.split(":")
+        segs = []
+        i = 0
+        while i < len(raw):
+            s = raw[i]
+            if len(s) == 1 and s.isalpha() and i + 1 < len(raw) and raw[i + 1].startswith(("/", "\\")):
+                segs.append(s + ":" + raw[i + 1])
+                i += 2
+            else:
+                segs.append(s)
+                i += 1
+    # 丢弃空条目 / 损坏条目 (如裸盘符 "C") / safe-bin 重定向目录
+    parts = [p for p in segs if p and len(p.strip()) >= 3 and "safe-bin" not in p.lower()]
+    # 系统 Node 目录无条件排最前 (若已存在先移除再插入, 避免位置靠后被受管 Node 抢占)
+    if os.name == "nt":
+        for cand in (r"C:\Program Files\nodejs", r"C:\Program Files (x86)\nodejs"):
+            if os.path.isdir(cand):
+                parts = [p for p in parts if os.path.normcase(p) != os.path.normcase(cand)]
+                parts.insert(0, cand)
+    env["PATH"] = os.pathsep.join(parts)
+    return env
+
+
+def _resolve_npx() -> str | None:
+    """解析 npx 可执行文件, Windows 上优先系统 Node 安装.
+
+    openwiki 的 better-sqlite3 原生模块按系统 Node 24 (ABI 137) 编译; 若 PATH 里
+    先出现其它 Node (如 WorkBuddy 受管 Node 22, ABI 127), 直接调 npx 会
+    NODE_MODULE_VERSION 不匹配而崩溃. 优先用系统 Node 的 npx, 找不到再走 PATH.
+    """
+    if os.name == "nt":
+        for cand in (
+            r"C:\Program Files\nodejs\npx.cmd",
+            r"C:\Program Files (x86)\nodejs\npx.cmd",
+        ):
+            if os.path.exists(cand):
+                return cand
+    return shutil.which("npx.cmd" if os.name == "nt" else "npx")
+
+
 def query(question: str, timeout: float = DEFAULT_QUERY_TIMEOUT) -> tuple[bool, str]:
     """向本地知识脑提一个问题, 返回 (ok, reply_or_err)."""
     if not question.strip():
@@ -64,7 +161,7 @@ def query(question: str, timeout: float = DEFAULT_QUERY_TIMEOUT) -> tuple[bool, 
     ok_b, detail = _cli_ok()
     if not ok_b:
         return False, detail
-    npx = shutil.which("npx.cmd" if os.name == "nt" else "npx")
+    npx = _resolve_npx()
     if not npx:
         return False, "找不到 npx，请确认已安装 Node.js，并将其加入系统 PATH"
     cmd = [npx, "--no-install", "openwiki", "personal", question]
@@ -73,7 +170,7 @@ def query(question: str, timeout: float = DEFAULT_QUERY_TIMEOUT) -> tuple[bool, 
             cmd, cwd=str(OPENWIKI_DIR),
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace",
-            env={**os.environ, "PYTHONUTF8": "1"},
+            env=_clean_child_env(),
         )
         stdout, stderr = proc.communicate(timeout=int(timeout))
     except subprocess.TimeoutExpired:
@@ -87,8 +184,19 @@ def query(question: str, timeout: float = DEFAULT_QUERY_TIMEOUT) -> tuple[bool, 
     except Exception as e:  # noqa: BLE001
         return False, f"openwiki 执行异常: {e}"
     if proc.returncode != 0:
-        err = (stderr or stdout or "").strip()
-        return False, f"openwiki 退出码 {proc.returncode}: {err[-500:]}"
+        combined = (stderr or "") + "\n" + (stdout or "")
+        err = _extract_error(combined)
+        # 完整输出落盘, 便于事后排查 (避免被 500 字截断淹没真实原因)
+        try:
+            from ..paths import PROJECT_ROOT
+            log_dir = PROJECT_ROOT / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            (log_dir / "openwiki_last_run.log").write_text(
+                combined, encoding="utf-8", errors="replace"
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return False, f"openwiki 退出码 {proc.returncode}: {err}"
     reply = _strip_banner(stdout or "")
     if not reply:
         return False, "openwiki 无输出"

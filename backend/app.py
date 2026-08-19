@@ -317,8 +317,9 @@ def _store_action(key: str, action: str) -> dict:
         gc.collect()
         raise HTTPException(
             status_code=409,
-            detail=f"{action} 失败: {e}。已自动停止相关 worker/任务并多次重试; "
-                   "请关闭仍在占用该目录的程序 (如正在跑的扫码/加好友任务) 后重试",
+            detail=f"{action} 失败: {e}。已自动停止相关 worker/任务并多次重试。"
+                   "若路径含 nul/con/prn/aux 等 Windows 保留名文件, 或 .pyd/.dll 仍被占用, "
+                   "请以管理员身份运行后端, 或手动删除 agents 下对应目录后重试",
         ) from e
 
 
