@@ -7,6 +7,9 @@ export default defineConfig({
   main: {},
   preload: {},
   renderer: {
+    server: {
+      host: '127.0.0.1'
+    },
     resolve: {
       alias: {
         '@': resolve('src/renderer/src')

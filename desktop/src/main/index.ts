@@ -10,6 +10,25 @@ const ORCH_DIR = resolve(__dirname, '../../..')
 let backendProc: ChildProcess | null = null
 let mainWindow: BrowserWindow | null = null
 
+function isBrokenPipe(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && 'code' in err && err.code === 'EPIPE'
+}
+
+process.stdout.on('error', (err) => {
+  if (!isBrokenPipe(err)) throw err
+})
+process.stderr.on('error', (err) => {
+  if (!isBrokenPipe(err)) throw err
+})
+
+function safeLog(stream: NodeJS.WriteStream, ...parts: unknown[]): void {
+  try {
+    stream.write(`${parts.map(String).join(' ')}\n`)
+  } catch (err) {
+    if (!isBrokenPipe(err)) throw err
+  }
+}
+
 function isDev(): boolean {
   return !app.isPackaged
 }
@@ -50,9 +69,9 @@ function startBackend(): ChildProcess {
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe']
   })
-  proc.stdout?.on('data', (d) => console.log('[backend]', String(d).trim()))
-  proc.stderr?.on('data', (d) => console.error('[backend]', String(d).trim()))
-  proc.on('exit', (code) => console.log('[backend] exited', code))
+  proc.stdout?.on('data', (d) => safeLog(process.stdout, '[backend]', String(d).trim()))
+  proc.stderr?.on('data', (d) => safeLog(process.stderr, '[backend]', String(d).trim()))
+  proc.on('exit', (code) => safeLog(process.stdout, '[backend] exited', code))
   return proc
 }
 

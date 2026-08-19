@@ -69,7 +69,9 @@ python -m recruit --contacts contacts.jsonl      # 跳过 wxshop，直接用现�
 ### 2.2 后端 + 桌面
 ```bash
 python -m backend            # FastAPI，127.0.0.1:8765，自动拉起 worker
-cd desktop && npm run dev     # Electron GUI（run_desktop.bat 亦可）
+cd desktop && npm run dev     # Electron GUI
+./run_desktop.command         # macOS 一键启动（首次运行可先 chmod +x run_desktop.command）
+run_desktop.bat               # Windows 一键启动
 ```
 后端启动（`app.py` lifespan）→ `agent_manager.start_all()` 拉起 `wechat/shop/openwiki` worker
 （**默认跳过 rag**，见 §7），后台线程每 3s 健康轮询、连续 3 次失败自动重启。
