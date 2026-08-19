@@ -105,8 +105,30 @@ def _clean_child_env() -> dict:
         "BASH_FUNC_unlink",
         "BASH_FUNC_rmdir",
     )
-    for k in [k for k in env if k.startswith(drop_prefixes) or k == "CLAUDE_SESSION_ID"]:
+    # 会话还会注入这几个非 CODEBUDDY_ 前缀的变量, 必须一并剔除, 否则 safe-delete
+    # 拦截会以 --require 方式挂进 openwiki 的 node 进程 (见下面对 NODE_OPTIONS 的处理).
+    drop_exact = (
+        "CLAUDE_SESSION_ID",
+        "GENIE_TRASH_DIR",     # 回收站工具目录 (safe-delete 重定向目标)
+        "BASH_ENV",            # 指向 safe-delete-bash-env.sh, 会恢复 rm 函数包装
+    )
+    for k in [k for k in env if k.startswith(drop_prefixes) or k in drop_exact]:
         env.pop(k, None)
+    # NODE_OPTIONS 里的 --require .../genie-safe-delete.cjs 是拦截的「根」: 它把
+    # 每个 node 进程的 fs.rm/unlink 重定向到 genie-trash, 在 Windows 上会报
+    # "Error during a trash operation: Some operations were aborted", 导致 openwiki
+    # 写 ~/.openwiki/skills/.write-connector-staging-* 后删除失败并卡死. 剥掉该
+    # --require, 保留 --use-system-ca 等其余开关 (公司代理/自签证书场景需要).
+    node_opts = env.get("NODE_OPTIONS", "")
+    if "genie-safe-delete" in node_opts:
+        # 路径含空格 ("C:/Program Files/..."), 不能简单用 \S+ 匹配; 引号内允许任意字符.
+        node_opts = re.sub(r'--require=(?:"[^"]*genie-safe-delete[^"]*"|\S*genie-safe-delete\S*)',
+                           "", node_opts)
+        node_opts = " ".join(node_opts.split())
+        if node_opts:
+            env["NODE_OPTIONS"] = node_opts
+        else:
+            env.pop("NODE_OPTIONS", None)
     # 从 PATH 移除 safe-bin shim 目录, 避免 rm/unlink 被重定向到回收站工具.
     # 兼容两种 PATH 形态: 原生 Windows (; 分隔) 与 Git Bash 传入的 (: 分隔).
     path = env.get("PATH", "")
@@ -169,13 +191,29 @@ def query(question: str, timeout: float = DEFAULT_QUERY_TIMEOUT) -> tuple[bool, 
         proc = subprocess.Popen(
             cmd, cwd=str(OPENWIKI_DIR),
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,  # 强制非 TTY: 否则后端从控制台启动时 stdin 是 TTY,
+            # openwiki 会进入交互式 TUI 而非一次性 print 模式, 卡住直到超时
             text=True, encoding="utf-8", errors="replace",
             env=_clean_child_env(),
         )
         stdout, stderr = proc.communicate(timeout=int(timeout))
     except subprocess.TimeoutExpired:
         _stop_process_tree(proc)
-        proc.communicate()
+        try:
+            tail_out, tail_err = proc.communicate()
+        except Exception:  # noqa: BLE001
+            tail_out, tail_err = "", ""
+        # 超时也把已捕获的输出落盘, 否则 60s 超时是个黑盒, 无法定位卡在哪一步.
+        try:
+            from ..paths import PROJECT_ROOT
+            log_dir = PROJECT_ROOT / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            (log_dir / "openwiki_last_run.log").write_text(
+                f"=== TIMEOUT ({int(timeout)}s) ===\nSTDOUT:\n{tail_out or ''}\n\nSTDERR:\n{tail_err or ''}",
+                encoding="utf-8", errors="replace",
+            )
+        except Exception:  # noqa: BLE001
+            pass
         return False, f"openwiki 执行超时 ({int(timeout)} 秒)"
     except PermissionError as e:
         return False, f"openwiki 权限错误: {e}"
