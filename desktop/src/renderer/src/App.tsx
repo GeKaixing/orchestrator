@@ -34,7 +34,7 @@ import Wiki from './components/Wiki'
 const NAV = [
   { key: 'dashboard', label: '监控面板', icon: LayoutDashboard },
   { key: 'followup', label: '跟进表', icon: ListChecks },
-  { key: 'controls', label: '任务控制', icon: PlayCircle },
+  { key: 'controls', label: '工作流', icon: PlayCircle },
   { key: 'rag', label: 'RAG', icon: BrainCircuit },
   { key: 'wiki', label: '知识库', icon: BookOpen },
   { key: 'wechat', label: '微信', icon: MessageCircle },

@@ -18,12 +18,12 @@ import { cn } from '@/lib/utils'
 
 const STAGES = ['all', 'scan', 'add', 'send', 'im', 'invite']
 const STAGE_NAME: Record<string, string> = {
-  all: '全流程 (扫描→加好友→发送)',
-  scan: '仅扫描提取联系方式',
+  all: '全流程',
+  scan: '仅扫描',
   add: '仅加好友',
-  send: '仅发送招商文案',
-  im: '小店官方 IM 招商',
-  invite: 'IM 5条邀约 → 微信复邀'
+  send: '仅发送',
+  im: 'IM 招商',
+  invite: 'IM邀约复邀'
 }
 
 interface Props {
@@ -112,7 +112,7 @@ export default function Controls({ run, settings, onRunStarted }: Props): JSX.El
               <SelectContent>
                 {STAGES.map((s) => (
                   <SelectItem key={s} value={s}>
-                    {s} — {STAGE_NAME[s]}
+                    {STAGE_NAME[s]}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -160,38 +160,88 @@ export default function Controls({ run, settings, onRunStarted }: Props): JSX.El
         </CardContent>
       </Card>
 
-      <Card className="gap-4 py-5">
-        <CardContent className="flex flex-col gap-3 px-5">
-          <h2 className="text-[15px] font-semibold">操作</h2>
-          <Button disabled={running} onClick={() => void start()}>
-            <Play className="size-4" />
-            启动任务
-          </Button>
-          <Button variant="destructive" disabled={!running} onClick={() => void stop()}>
-            <Square className="size-4" />
-            停止任务
-          </Button>
-          <Button disabled={running} onClick={() => void reply()}>
-            <MessageSquareReply className="size-4" />
-            自动回复一轮 (IM)
-          </Button>
+      <div className="flex flex-col gap-5">
+        <Card className="gap-4 py-5">
+          <CardContent className="flex flex-col gap-3 px-5">
+            <h2 className="text-[15px] font-semibold">操作</h2>
+            <Button disabled={running} onClick={() => void start()}>
+              <Play className="size-4" />
+              启动任务
+            </Button>
+            <Button variant="destructive" disabled={!running} onClick={() => void stop()}>
+              <Square className="size-4" />
+              停止任务
+            </Button>
+            <Button disabled={running} onClick={() => void reply()}>
+              <MessageSquareReply className="size-4" />
+              自动回复一轮 (IM)
+            </Button>
 
-          <div className="mt-1 flex items-center gap-2 text-[13px]">
-            <span
-              className={cn(
-                'size-2 rounded-full',
-                run?.status === 'running' ? 'bg-green-500' : 'bg-muted-foreground/60'
-              )}
-            />
-            <span>{runStatusText(run)}</span>
-          </div>
-          {msg && <div className="text-xs text-primary">{msg}</div>}
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            all/send/im/invite 需填写招商文案; scan 只扫描提取联系方式。文案多行 = 多条消息
-            (invite 用前 5 条)。启动后任务在后台子进程运行，可在「日志」查看输出。
-          </p>
-        </CardContent>
-      </Card>
+            <div className="mt-1 flex items-center gap-2 text-[13px]">
+              <span
+                className={cn(
+                  'size-2 rounded-full',
+                  run?.status === 'running' ? 'bg-green-500' : 'bg-muted-foreground/60'
+                )}
+              />
+              <span>{runStatusText(run)}</span>
+            </div>
+            {msg && <div className="text-xs text-primary">{msg}</div>}
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              全流程/仅发送/IM招商/IM邀约复邀 需填写招商文案; 仅扫描 只扫描提取联系方式。文案多行 = 多条消息
+              (IM邀约复邀 用前 5 条)。启动后任务在后台子进程运行，可在「日志」查看输出。
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="gap-4 py-5">
+          <CardContent className="flex flex-col gap-4 px-5">
+            <h2 className="text-[15px] font-semibold">工作流详细流程</h2>
+            
+            <div className="text-xs leading-relaxed text-muted-foreground space-y-3">
+              <div>
+                <p className="font-medium text-foreground mb-1">全流程 (all)</p>
+                <p>前置检查 → 扫描达人广场 → 提取联系方式 → 加载联系人 → 构建待办 → 并发处理(加好友+发文案) → 生成报告</p>
+              </div>
+              
+              <div>
+                <p className="font-medium text-foreground mb-1">仅扫描 (scan)</p>
+                <p>前置检查 → 扫描达人广场 → 提取联系方式 → 加载联系人 → 构建待办 → 并发处理(加好友+发文案) → 生成报告</p>
+              </div>
+              
+              <div>
+                <p className="font-medium text-foreground mb-1">仅加好友 (add)</p>
+                <p>前置检查 → 加载联系人 → 构建待办 → 并发处理(加好友) → 生成报告</p>
+              </div>
+              
+              <div>
+                <p className="font-medium text-foreground mb-1">仅发送 (send)</p>
+                <p>前置检查 → 加载联系人 → 构建待办 → 并发处理(发文案) → 生成报告</p>
+              </div>
+              
+              <div>
+                <p className="font-medium text-foreground mb-1">IM招商 (im)</p>
+                <p>前置检查 → 小店官方IM发送招商文案 → 生成报告</p>
+              </div>
+              
+              <div>
+                <p className="font-medium text-foreground mb-1">IM邀约复邀 (invite)</p>
+                <p>前置检查 → IM发送5条邀约 → 提取联系方式 → 微信加好友 → 生成报告</p>
+              </div>
+              
+              <div className="pt-2 border-t border-border">
+                <p className="font-medium text-foreground mb-1">每联系人子流程</p>
+                <p>加好友 → (成功且需发文案) → 发送招商文案 → 完成</p>
+              </div>
+              
+              <div className="pt-2 border-t border-border">
+                <p className="font-medium text-foreground mb-1">自动回复 (reply)</p>
+                <p>扫描已招商IM房间 → 达人新消息 → RAG智能应答 → IM回复</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

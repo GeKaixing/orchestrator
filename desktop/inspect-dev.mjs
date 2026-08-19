@@ -41,8 +41,8 @@ const badgeColors = await page.evaluate(() =>
 )
 console.log('stage badge colors: ' + JSON.stringify(badgeColors))
 
-console.log('=== 任务控制 ===')
-await page.evaluate(() => { const el = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('任务控制')); el?.click() })
+console.log('=== 工作流 ===')
+await page.evaluate(() => { const el = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('工作流')); el?.click() })
 await page.waitForSelector('text=启动任务', { timeout: 10000 })
 await new Promise((r) => setTimeout(r, 800))
 const btnDefs = [

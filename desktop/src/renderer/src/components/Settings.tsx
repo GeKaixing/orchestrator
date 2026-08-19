@@ -32,7 +32,7 @@ const STAGE_NAME: Record<string, string> = {
   add: '仅加好友',
   send: '仅发送',
   im: 'IM 招商',
-  invite: 'IM 5条邀约 → 微信复邀'
+  invite: 'IM邀约复邀'
 }
 
 type SectionKey = 'general' | 'agents' | 'download' | 'update'
@@ -55,12 +55,14 @@ export default function SettingsView({ settings, onSaved }: Props): JSX.Element 
   const [store, setStore] = useState<AgentStoreItem[]>([])
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [storeMsg, setStoreMsg] = useState('')
+  const [refreshingStore, setRefreshingStore] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
   const [update, setUpdate] = useState<UpdateCheck | null>(null)
   const [updateMsg, setUpdateMsg] = useState('')
   const [checking, setChecking] = useState(false)
   const [agentConfigs, setAgentConfigs] = useState<Record<string, { path: string; text: string }>>({})
   const [configMsg, setConfigMsg] = useState('')
+  const [refreshingConfigs, setRefreshingConfigs] = useState(false)
   const [active, setActive] = useState<SectionKey>('general')
 
   const doCheck = async (force = false): Promise<void> => {
@@ -96,11 +98,37 @@ export default function SettingsView({ settings, onSaved }: Props): JSX.Element 
     }
   }
 
+  const refreshStore = async (): Promise<void> => {
+    setRefreshingStore(true)
+    try {
+      await loadStore()
+    } finally {
+      setRefreshingStore(false)
+    }
+  }
+
   // 下载区与表单独立, 挂载时拉一次即可 (操作后有刷新按钮逻辑)
   useEffect(() => {
     void loadStore()
   }, [])
-  useEffect(() => { void api<Record<string, { path: string; text: string }>>('/api/agent-configs').then(setAgentConfigs).catch((e) => setConfigMsg(String(e))) }, [])
+  const loadConfigs = async (): Promise<void> => {
+    try {
+      setAgentConfigs(await api<Record<string, { path: string; text: string }>>('/api/agent-configs'))
+    } catch (e) {
+      setConfigMsg(String(e))
+    }
+  }
+
+  const refreshConfigs = async (): Promise<void> => {
+    setRefreshingConfigs(true)
+    try {
+      await loadConfigs()
+    } finally {
+      setRefreshingConfigs(false)
+    }
+  }
+
+  useEffect(() => { void loadConfigs() }, [])
   const saveAgentConfig = async (key: string): Promise<void> => {
     try { await api(`/api/agent-configs/${key}`, { method: 'PUT', body: { text: agentConfigs[key]?.text || '' } }); setConfigMsg(`${key} 配置已保存`) } catch (e) { setConfigMsg(String(e)) }
   }
@@ -172,7 +200,7 @@ export default function SettingsView({ settings, onSaved }: Props): JSX.Element 
           {active === 'general' && (
             <div className="flex max-w-[560px] flex-col gap-4">
               <h2 className="text-[15px] font-semibold">
-                客户端默认设置（保存后「任务控制」自动预填）
+                客户端默认设置（保存后「工作流」自动预填）
               </h2>
 
               <div className="flex flex-col gap-2">
@@ -184,7 +212,7 @@ export default function SettingsView({ settings, onSaved }: Props): JSX.Element 
                   <SelectContent>
                     {STAGES.map((s) => (
                       <SelectItem key={s} value={s}>
-                        {s} — {STAGE_NAME[s]}
+                        {STAGE_NAME[s]}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -231,7 +259,22 @@ export default function SettingsView({ settings, onSaved }: Props): JSX.Element 
 
           {active === 'agents' && (
             <div className="flex flex-col gap-3">
-              <h2 className="text-[15px] font-semibold">子 Agent 配置</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-[15px] font-semibold">子 Agent 配置</h2>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={refreshingConfigs}
+                  onClick={() => void refreshConfigs()}
+                >
+                  {refreshingConfigs ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-3.5" />
+                  )}
+                  刷新
+                </Button>
+              </div>
               {Object.entries(agentConfigs).map(([key, cfg]) => (
                 <div key={key} className="flex flex-col gap-2 rounded-md border border-border p-3">
                   <div className="flex items-center justify-between"><Label>{key}</Label><Button size="sm" onClick={() => void saveAgentConfig(key)} disabled={key === 'rag'}>保存</Button></div>
@@ -245,7 +288,22 @@ export default function SettingsView({ settings, onSaved }: Props): JSX.Element 
 
           {active === 'download' && (
             <div className="flex flex-col gap-3">
-              <h2 className="text-[15px] font-semibold">子 Agent 下载</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-[15px] font-semibold">子 Agent 下载</h2>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={refreshingStore}
+                  onClick={() => void refreshStore()}
+                >
+                  {refreshingStore ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-3.5" />
+                  )}
+                  刷新
+                </Button>
+              </div>
               <p className="-mt-1 text-xs text-muted-foreground">
                 未安装的依赖项目（微信 / 微信小店）可一键克隆到 agents/ 目录
               </p>

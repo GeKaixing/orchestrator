@@ -12,6 +12,7 @@ worker stderr 落到 logs/agents/<name>.log, 避免管道缓冲阻塞 worker.
 from __future__ import annotations
 
 import os
+import queue
 import signal
 import socket
 import subprocess
@@ -104,20 +105,46 @@ class AgentManager:
         return {"ok": True, "pid": proc.pid, "port": port}
 
     def _read_port(self, proc: subprocess.Popen, name: str, timeout: float = 20) -> int | None:
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            if proc.poll() is not None:
-                return None  # 进程已退出
-            line = proc.stdout.readline()
-            if not line:
-                return None
-            line = line.strip()
-            if line.startswith("PORT "):
-                try:
-                    return int(line.split()[1])
-                except ValueError:
-                    return None
-        return None
+        """在 timeout 秒内等待 worker 输出 'PORT <port>' 行.
+
+        使用后台线程 + queue 实现非阻塞读取, 避免 readline() 无限阻塞.
+        """
+        result_q: queue.Queue[int | None] = queue.Queue()
+
+        def _reader() -> None:
+            """后台线程: 逐行读 stdout, 找到 PORT 行后放入 result_q."""
+            try:
+                while True:
+                    raw_line = proc.stdout.readline()
+                    if not raw_line:
+                        # stdout 关闭 (worker 已退出), 没有 PORT 行
+                        result_q.put(None)
+                        return
+                    line = raw_line.strip()
+                    if line.startswith("PORT "):
+                        try:
+                            result_q.put(int(line.split()[1]))
+                        except (ValueError, IndexError):
+                            result_q.put(None)
+                        return
+            except Exception:  # noqa: BLE001
+                result_q.put(None)
+
+        t = threading.Thread(target=_reader, daemon=True)
+        t.start()
+
+        try:
+            return result_q.get(timeout=timeout)
+        except queue.Empty:
+            # 超时: worker 既不输出 PORT 也不退出 → 终止进程
+            log.warning("agent %s: 等待 PORT 超时, 终止 worker (pid=%s)", name, proc.pid)
+            _kill_tree(proc.pid)
+            # 等待进程真正退出
+            for _ in range(20):
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.2)
+            return None
 
     def stop(self, name: str) -> dict:
         with self._lock:

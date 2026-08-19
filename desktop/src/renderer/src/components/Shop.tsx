@@ -153,7 +153,7 @@ export default function Shop(): JSX.Element {
               提取联系人（<code className="mono">contact</code>）、群聊触达（<code className="mono">im_chat</code>）。
             </p>
             <p className="mt-2">
-              健康检查会验证 wxshop 登录态是否有效；登录态失效时状态显示「降级」。任务控制页的采集/触达任务由
+              健康检查会验证 wxshop 登录态是否有效；登录态失效时状态显示「降级」。工作流页的采集/触达任务由
               本 agent 执行，启动后 agent_manager 每 3s 做健康轮询，连续失败会自动重启。
             </p>
           </CardContent>
