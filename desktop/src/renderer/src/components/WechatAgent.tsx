@@ -1,8 +1,8 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Activity, Check, Copy, Loader2, MessageCircle, Play, RotateCw, Square } from 'lucide-react'
 import { api } from '../api'
 import { usePolling } from '../usePolling'
-import type { AgentStatus } from '../types'
+import type { AgentStatus, PlatformInfo } from '../types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -30,16 +30,27 @@ const STATE_BADGE: Record<string, 'default' | 'secondary' | 'destructive' | 'out
   starting: 'secondary'
 }
 
-const CLI_CMDS: { desc: string; cmd: string }[] = [
-  {
-    desc: '一键初始化环境（装依赖 · 生成 .env · 校验 cua-driver）',
-    cmd: 'powershell -ExecutionPolicy Bypass -File setup.ps1'
-  },
-  { desc: '添加微信好友', cmd: 'uv run python scripts/add_friend.py --wxid <微信号>' },
-  { desc: '给联系人发送固定文案', cmd: 'uv run python scripts/send_message.py --wxid <微信号> --text "文案内容"' },
-  { desc: 'AI 自动回复对方最新消息', cmd: 'uv run python scripts/send_message.py --wxid <微信号>' },
-  { desc: '发送后持续监听对方新消息并自动回复', cmd: 'uv run python scripts/send_message.py --wxid <微信号> --watch' }
-]
+const DEFAULT_PLATFORM: PlatformInfo = {
+  platform: 'windows',
+  path_separator: '\\',
+  wechat_agent_dir: 'agents\\wechat-friend-add',
+  wechat_setup_command: 'powershell -ExecutionPolicy Bypass -File setup.ps1',
+  setup_command: 'run_desktop.bat',
+  permissions: []
+}
+
+function cliCmds(platform: PlatformInfo): { desc: string; cmd: string }[] {
+  return [
+    {
+      desc: '一键初始化环境（装依赖 · 生成 .env · 校验 cua-driver）',
+      cmd: platform.wechat_setup_command
+    },
+    { desc: '添加微信好友', cmd: 'uv run python scripts/add_friend.py --wxid <微信号>' },
+    { desc: '给联系人发送固定文案', cmd: 'uv run python scripts/send_message.py --wxid <微信号> --text "文案内容"' },
+    { desc: 'AI 自动回复对方最新消息', cmd: 'uv run python scripts/send_message.py --wxid <微信号>' },
+    { desc: '发送后持续监听对方新消息并自动回复', cmd: 'uv run python scripts/send_message.py --wxid <微信号> --watch' }
+  ]
+}
 
 function CmdRow({ cmd }: { cmd: string }): JSX.Element {
   const [copied, setCopied] = useState(false)
@@ -71,8 +82,15 @@ function CmdRow({ cmd }: { cmd: string }): JSX.Element {
 
 export default function WechatAgent(): JSX.Element {
   const [agent, setAgent] = useState<AgentStatus | null>(null)
+  const [platform, setPlatform] = useState<PlatformInfo>(DEFAULT_PLATFORM)
   const [busy, setBusy] = useState<string | null>(null)
   const [live, setLive] = useState<{ ok: boolean; detail?: string } | null>(null)
+
+  useEffect(() => {
+    void api<PlatformInfo>('/api/platform')
+      .then(setPlatform)
+      .catch(() => {})
+  }, [])
 
   const load = useCallback(async () => {
     try {
@@ -110,6 +128,7 @@ export default function WechatAgent(): JSX.Element {
 
   const state = agent?.status ?? 'stopped'
   const running = state === 'running'
+  const cmds = cliCmds(platform)
 
   return (
     <div className="flex h-full gap-4">
@@ -119,16 +138,22 @@ export default function WechatAgent(): JSX.Element {
             <CardTitle className="text-base">调试 CLI 命令</CardTitle>
             <CardDescription>
               工作目录{' '}
-              <code className="mono">agents\wechat-friend-add</code>，可直接在终端运行（桌面端 agent 也调用同一项目）
+              <code className="mono">{platform.wechat_agent_dir}</code>
+              ，可直接在终端运行（桌面端 agent 也调用同一项目）
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-2.5 px-6">
-            {CLI_CMDS.map((c) => (
+            {cmds.map((c) => (
               <div key={c.cmd} className="flex flex-col gap-1">
                 <span className="text-xs text-muted-foreground">{c.desc}</span>
                 <CmdRow cmd={c.cmd} />
               </div>
             ))}
+            {platform.permissions.length > 0 && (
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                macOS 需要在系统设置里允许：{platform.permissions.join('、')}
+              </p>
+            )}
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
               排障产物：<code className="mono">logs/</code> 日志 · <code className="mono">screenshots/</code>{' '}
               截图 · <code className="mono">session/&lt;wxid&gt;.md</code> 会话记录

@@ -1,7 +1,7 @@
 """AgentManager — 托管三个 agent worker 进程, 写穿 db agents 表.
 
 - start(name): spawn `python -m recruit.agents.worker <name> --port 0`, 读上报端口, 记 {status,pid,port}.
-- stop(name): taskkill 进程树 (Windows), 清状态.
+- stop(name): 按平台停止进程树, 清状态.
 - 后台健康轮询线程: 每 ~3s 对 running worker TCP health → 更新 status/detail/last_health;
   连续 N 次失败自动 restart.
 - status_all(): 合并 db 状态与当前进程存活性, 供 /api/agents.
@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 import queue
-import signal
 import socket
 import subprocess
 import sys
@@ -23,13 +22,12 @@ from pathlib import Path
 from typing import Any
 
 from recruit import get_logger
+from recruit import platform
 from recruit.agents import client as agent_client
 from recruit.paths import WORK_DIR
 from recruit.services import db
 
 log = get_logger("agent_manager")
-
-CREATE_NEW_PROCESS_GROUP = 0x00000200 if os.name == "nt" else 0
 
 # 知识问答统一走 openwiki agent (Personal 模式本地知识脑), 与 wechat/shop 同为 worker 进程
 AGENT_NAMES = ("wechat", "shop", "rag", "openwiki")
@@ -49,17 +47,7 @@ def _auto_start_names() -> list[str]:
 
 
 def _kill_tree(pid: int) -> None:
-    if os.name == "nt":
-        try:
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)],
-                           capture_output=True, timeout=30)
-        except Exception:  # noqa: BLE001
-            pass
-    else:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except Exception:  # noqa: BLE001
-            pass
+    platform.kill_process_tree(pid)
 
 
 class AgentManager:
@@ -86,8 +74,8 @@ class AgentManager:
                 cwd=str(WORK_DIR),
                 stdout=subprocess.PIPE, stderr=err_log,
                 text=True, encoding="utf-8", errors="replace",
-                creationflags=CREATE_NEW_PROCESS_GROUP,
                 env={**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"},
+                **platform.popen_kwargs(),
             )
         except Exception as e:  # noqa: BLE001
             db.upsert_agent(name, status="error", pid=None, port=None, detail=f"启动异常: {e}")

@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 from .. import get_logger
+from .. import platform
 from ..paths import WECHAT_SCRIPTS_DIR
 
 log = get_logger("runner")
@@ -45,13 +46,7 @@ def _run(
 
 def _venv_python(project_dir: Path) -> str | None:
     """Windows: .venv/Scripts/python.exe; Unix: .venv/bin/python"""
-    for p in (
-        project_dir / ".venv" / "Scripts" / "python.exe",
-        project_dir / ".venv" / "bin" / "python",
-    ):
-        if p.exists():
-            return str(p)
-    return None
+    return platform.venv_python(project_dir)
 
 
 def wechat_scripts_on_path() -> None:

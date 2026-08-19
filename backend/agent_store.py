@@ -7,13 +7,13 @@
 from __future__ import annotations
 
 import os
-import shutil
 import stat
 import subprocess
 import time
 from pathlib import Path
 
 from recruit import get_logger
+from recruit import platform
 from recruit.paths import PROJECT_ROOT
 
 log = get_logger("agent_store")
@@ -21,11 +21,7 @@ log = get_logger("agent_store")
 
 def _resolve_exe(name: str) -> str | None:
     """按当前平台解析可执行文件完整路径 (Windows 下 npm 需 npm.cmd)。"""
-    if os.name == "nt" and not name.lower().endswith((".exe", ".cmd", ".bat")):
-        # Windows 优先尝试带扩展名, 避免 subprocess 裸名解析不到
-        if name == "npm":
-            name = "npm.cmd"
-    return shutil.which(name)
+    return platform.resolve_executable(name)
 
 
 def _check_git() -> tuple[bool, str]:

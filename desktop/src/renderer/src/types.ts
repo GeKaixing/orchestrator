@@ -71,6 +71,15 @@ export interface AgentStatus {
   updated: string
 }
 
+export interface PlatformInfo {
+  platform: string
+  path_separator: string
+  wechat_agent_dir: string
+  wechat_setup_command: string
+  setup_command: string
+  permissions: string[]
+}
+
 export interface Preflight {
   wechat: boolean
   wxshop: boolean

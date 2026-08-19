@@ -3,7 +3,7 @@
 - 同一时刻只允许一个运行中 run.
 - 启动: [sys.executable, "-m", "recruit", "--stage", ...] (cwd=orchestrator).
 - 日志: reader 线程逐行 stdout/stderr → insert_log.
-- 停止: taskkill /T /F 杀进程树; 线程随 stdout 关闭结束.
+- 停止: 按平台停止进程树; 线程随 stdout 关闭结束.
 """
 
 from __future__ import annotations
@@ -13,12 +13,10 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any
 
+from recruit import platform
 from recruit.paths import WORK_DIR
 from recruit.services import db
-
-CREATE_NEW_PROCESS_GROUP = 0x00000200 if os.name == "nt" else 0
 
 STAGES = ("all", "scan", "add", "send", "im", "invite")
 
@@ -66,8 +64,8 @@ class RunManager:
                     cmd, cwd=str(WORK_DIR),
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True, encoding="utf-8", errors="replace",
-                    creationflags=CREATE_NEW_PROCESS_GROUP,
                     env={**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"},
+                    **platform.popen_kwargs(),
                 )
             except Exception as exc:
                 db.update_run(run_id, status="failed", exit_code=-1)
@@ -97,17 +95,7 @@ class RunManager:
             proc = self._proc
         if proc is not None and proc.poll() is None:
             self._stopped = True
-            try:
-                if os.name == "nt":
-                    subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                                   capture_output=True, timeout=30)
-                else:
-                    proc.terminate()
-            except Exception:  # noqa: BLE001
-                try:
-                    proc.kill()
-                except Exception:  # noqa: BLE001
-                    pass
+            platform.kill_process_tree(proc.pid)
             db.update_run(run_id, status="stopped")
         return {"ok": True}
 

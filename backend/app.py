@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from recruit import get_logger
+from recruit import platform
 from recruit.paths import REPORT_FILE
 from recruit.services import db
 from recruit.services import followup as followup_mod
@@ -85,6 +86,11 @@ class AgentConfigPayload(BaseModel):
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True}
+
+
+@app.get("/api/platform")
+def platform_info() -> dict:
+    return platform.platform_payload()
 
 
 @app.get("/api/update-check")

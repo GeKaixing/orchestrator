@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import re
 import os
-import shutil
 import subprocess
 
 from .. import get_logger
+from .. import platform
 from ..paths import OPENWIKI_DIR
 
 log = get_logger("openwiki")
@@ -72,13 +72,7 @@ def _stop_process_tree(proc: subprocess.Popen[str]) -> None:
     if proc.poll() is not None:
         return
     try:
-        if os.name == "nt":
-            subprocess.run(
-                ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                capture_output=True, timeout=15,
-            )
-        else:
-            proc.kill()
+        platform.kill_process_tree(proc.pid, timeout=15)
     except Exception:  # noqa: BLE001
         proc.kill()
 
@@ -173,7 +167,7 @@ def _resolve_npx() -> str | None:
         ):
             if os.path.exists(cand):
                 return cand
-    return shutil.which("npx.cmd" if os.name == "nt" else "npx")
+    return platform.resolve_executable("npx")
 
 
 def query(question: str, timeout: float = DEFAULT_QUERY_TIMEOUT) -> tuple[bool, str]:
@@ -195,6 +189,7 @@ def query(question: str, timeout: float = DEFAULT_QUERY_TIMEOUT) -> tuple[bool, 
             # openwiki 会进入交互式 TUI 而非一次性 print 模式, 卡住直到超时
             text=True, encoding="utf-8", errors="replace",
             env=_clean_child_env(),
+            **platform.popen_kwargs(),
         )
         stdout, stderr = proc.communicate(timeout=int(timeout))
     except subprocess.TimeoutExpired:
