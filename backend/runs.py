@@ -55,20 +55,23 @@ class RunManager:
             if payload.get("text"):
                 cmd += ["--text", str(payload["text"])]
 
+        run_id = db.insert_run(run_type, stage, limit, summary=" ".join(cmd))
         with self._lock:
             if self._proc is not None and self._proc.poll() is None:
+                db.update_run(run_id, status="failed", exit_code=-1)
                 return {"error": "已有任务在运行"}
             self._stopped = False
-
-        run_id = db.insert_run(run_type, stage, limit, summary=" ".join(cmd))
-        proc = subprocess.Popen(
-            cmd, cwd=str(WORK_DIR),
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8", errors="replace",
-            creationflags=CREATE_NEW_PROCESS_GROUP,
-            env={**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"},
-        )
-        with self._lock:
+            try:
+                proc = subprocess.Popen(
+                    cmd, cwd=str(WORK_DIR),
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, encoding="utf-8", errors="replace",
+                    creationflags=CREATE_NEW_PROCESS_GROUP,
+                    env={**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"},
+                )
+            except Exception as exc:
+                db.update_run(run_id, status="failed", exit_code=-1)
+                return {"error": f"启动失败: {exc}"}
             self._proc = proc
             self._run_id = run_id
         threading.Thread(target=self._reader, args=(proc, run_id), daemon=True).start()
